@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
 Bilibili 视频总结器
-从 config.toml 读取视频 URL，获取字幕并使用 Claude API 生成总结
-输出到 summary/<视频标题>.md
+
+用法:
+  python summarize.py                     # 总结 config.toml 中的视频 URL
+  python summarize.py --user UID --count N  # 总结某 UP主 最新 N 个视频
 """
 
+import argparse
 import asyncio
 import re
 import os
@@ -13,7 +16,7 @@ from pathlib import Path
 
 import toml
 from dotenv import load_dotenv
-from bilibili_api import video, Credential
+from bilibili_api import video, user, Credential
 import anthropic
 
 
@@ -241,21 +244,41 @@ async def process_video(url: str, client: anthropic.Anthropic, credential: Crede
         print(f"  ❌ 处理失败: {e}")
 
 
+async def process_by_bvid(bvid: str, client: anthropic.Anthropic, credential: Credential = None):
+    """通过 BV 号处理视频"""
+    url = f"https://www.bilibili.com/video/{bvid}"
+    await process_video(url, client, credential)
+
+
+async def get_user_videos(uid: int, count: int, credential: Credential = None) -> list:
+    """获取 UP主 最新的 N 个视频"""
+    u = user.User(uid=uid, credential=credential)
+    
+    # 获取用户信息
+    try:
+        user_info = await u.get_user_info()
+        print(f"👤 UP主: {user_info.get('name', uid)}")
+    except Exception as e:
+        print(f"⚠️ 无法获取用户信息: {e}")
+    
+    # 获取视频列表
+    videos_data = await u.get_videos(ps=count, pn=1)
+    video_list = videos_data.get('list', {}).get('vlist', [])
+    
+    return [v.get('bvid') for v in video_list if v.get('bvid')]
+
+
 async def main():
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='Bilibili 视频总结器')
+    parser.add_argument('--user', type=int, help='UP主 UID')
+    parser.add_argument('--count', type=int, default=5, help='总结视频数量 (默认 5)')
+    args = parser.parse_args()
+    
     # 加载环境变量
     load_dotenv('.env.local')
     
-    # 读取配置
-    config = toml.load("config.toml")
-    urls = config.get("summary-videos", [])
-    
-    if not urls:
-        print("❌ config.toml 中没有配置视频 URL")
-        return
-    
-    print(f"📋 共有 {len(urls)} 个视频需要总结")
-    
-    # 初始化 Bilibili 登录凭证（获取字幕需要）
+    # 初始化 Bilibili 登录凭证
     sessdata = os.getenv('BILIBILI_SESSION_TOKEN')
     bili_jct = os.getenv('BILIBILI_BILI_JCT')
     credential = None
@@ -271,14 +294,36 @@ async def main():
         api_key=os.getenv('ANTHROPIC_AUTH_TOKEN')
     )
     
-    # 去重 URL
-    unique_urls = list(dict.fromkeys(urls))
-    
-    # 处理每个视频
-    for url in unique_urls:
-        await process_video(url, client, credential)
-        # 添加延迟避免频率限制
-        await asyncio.sleep(1)
+    # 根据模式处理
+    if args.user:
+        # 模式二: 总结某 UP主 的最新 N 个视频
+        print(f"\n📹 获取 UP主 {args.user} 的最新 {args.count} 个视频...")
+        bvids = await get_user_videos(args.user, args.count, credential)
+        
+        if not bvids:
+            print("❌ 未找到视频")
+            return
+        
+        print(f"📋 共有 {len(bvids)} 个视频需要总结")
+        
+        for bvid in bvids:
+            await process_by_bvid(bvid, client, credential)
+            await asyncio.sleep(1)
+    else:
+        # 模式一: 总结 config.toml 中的视频 URL
+        config = toml.load("config.toml")
+        urls = config.get("summary-videos", [])
+        
+        if not urls:
+            print("❌ config.toml 中没有配置视频 URL")
+            return
+        
+        print(f"📋 共有 {len(urls)} 个视频需要总结")
+        
+        unique_urls = list(dict.fromkeys(urls))
+        for url in unique_urls:
+            await process_video(url, client, credential)
+            await asyncio.sleep(1)
     
     print("\n✨ 完成!")
 
