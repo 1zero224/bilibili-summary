@@ -295,8 +295,13 @@ async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: 
         summary, duration_sec = await summarize_with_claude(subtitle_text, title, client, model=target_model)
         print(f"    ⏱️  耗时: {duration_sec:.2f}s")
         
+        # Determine output directory
+        final_output_subdir = output_subdir
+        if not subtitle_text:
+            final_output_subdir = f"{output_subdir}/no_subtitle"
+        
         # 保存
-        save_summary(title, bvid, url, duration, summary, output_subdir)
+        save_summary(title, bvid, url, duration, summary, final_output_subdir)
         
     except Exception as e:
         print(f"  ❌ 处理失败: {e}")
