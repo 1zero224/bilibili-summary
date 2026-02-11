@@ -19,7 +19,7 @@ from pathlib import Path
 
 import toml
 from dotenv import load_dotenv, set_key
-from bilibili_api import video, user, favorite_list
+from bilibili_api import video, user, favorite_list, search
 from bilibili_api.utils.network import Credential
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
 import anthropic
@@ -308,6 +308,28 @@ async def process_by_bvid(bvid: str, client: anthropic.AsyncAnthropic, credentia
     await process_video(url, client, credential, output_subdir, model, benchmark)
 
 
+async def get_uid_by_name(name: str) -> int:
+    """通过用户名搜索 UID"""
+    print(f"🔍 搜索 UP主: {name}...")
+    try:
+        res = await search.search_by_type(
+            keyword=name,
+            search_type=search.SearchObjectType.USER,
+            page=1
+        )
+        if 'result' in res and res['result']:
+            user_info = res['result'][0]
+            uid = user_info['mid']
+            print(f"✅ 找到 UP主: {user_info['uname']} (UID: {uid})")
+            return uid
+        else:
+            print(f"❌ 未找到名为 '{name}' 的 UP主")
+            return None
+    except Exception as e:
+        print(f"❌ 搜索失败: {e}")
+        return None
+
+
 async def get_user_videos(uid: int, count: int, credential: Credential = None) -> list:
     """获取 UP主 最新的 N 个视频"""
     u = user.User(uid=uid, credential=credential)
@@ -428,7 +450,7 @@ async def qr_login():
 async def main():
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='Bilibili 视频总结器')
-    parser.add_argument('--user', type=int, help='UP主 UID')
+    parser.add_argument('--user', type=str, help='UP主 UID 或 用户名')
     parser.add_argument('--count', type=int, help='总结视频数量 (默认: UP主=50, 收藏夹=20)')
     parser.add_argument('--login', action='store_true', help='扫码登录 Bilibili')
     parser.add_argument('--favorite', action='store_true', help='总结默认收藏夹的最新视频')
@@ -496,9 +518,19 @@ async def main():
 
     elif args.user:
         # 模式二: 总结某 UP主 的最新 N 个视频
+        
+        # 解析 UID (支持用户名搜索)
+        target_uid = None
+        if args.user.isdigit():
+            target_uid = int(args.user)
+        else:
+            target_uid = await get_uid_by_name(args.user)
+            if not target_uid:
+                return
+
         count = args.count if args.count else 50
-        print(f"\n📹 获取 UP主 {args.user} 的最新 {count} 个视频...")
-        bvids = await get_user_videos(args.user, count, credential)
+        print(f"\n📹 获取 UP主 {target_uid} 的最新 {count} 个视频...")
+        bvids = await get_user_videos(target_uid, count, credential)
         
         if not bvids:
             print("❌ 未找到视频")
@@ -507,7 +539,7 @@ async def main():
         print(f"📋 共有 {len(bvids)} 个视频需要总结 (并发数: {concurrency})")
         
         # 使用 users/<uid> 作为输出子目录
-        output_subdir = f"users/{args.user}"
+        output_subdir = f"users/{target_uid}"
         
         tasks = [bounded_process_by_bvid(bvid, output_subdir) for bvid in bvids]
         await asyncio.gather(*tasks)
