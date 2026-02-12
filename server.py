@@ -577,6 +577,27 @@ async def summarize_favorite_bvids(req: SummarizeBvidsRequest):
     return {"task_id": task_id}
 
 
+@app.delete("/api/favorites/{fav_id}/video/{bvid}")
+async def unfavorite_video(fav_id: int, bvid: str):
+    """Remove a video from a favorite folder."""
+    if not credential:
+        return JSONResponse(status_code=401, content={"error": "未登录 Bilibili"})
+
+    try:
+        v = video.Video(bvid=bvid, credential=credential)
+        info = await v.get_info()
+        aid = info.get("aid")
+        if not aid:
+            return JSONResponse(status_code=400, content={"error": "无法获取视频 AID"})
+
+        await favorite_list.delete_video_favorite_list_content(
+            media_id=fav_id, aids=[aid], credential=credential
+        )
+        return {"success": True, "bvid": bvid}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/progress/{task_id}")
 async def progress_stream(task_id: str, request: Request):
     last_id = int(request.headers.get("Last-Event-ID", "-1"))

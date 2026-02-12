@@ -690,7 +690,18 @@ function toggleFavFolders() {
 }
 
 // Event delegation for video card clicks
-document.getElementById('favVideoGrid').addEventListener('click', (e) => {
+const favGrid = document.getElementById('favVideoGrid');
+favGrid.addEventListener('click', (e) => {
+    // Handle unfavorite button click
+    const unfavBtn = e.target.closest('.unfav-btn');
+    if (unfavBtn) {
+        e.stopPropagation();
+        const card = unfavBtn.closest('.video-card');
+        const bvid = card.dataset.bvid;
+        unfavoriteVideo(bvid, card);
+        return;
+    }
+
     const card = e.target.closest('.video-card');
     if (!card) return;
 
@@ -788,6 +799,7 @@ function renderVideoCard(v) {
         <div class="video-card" id="card-${v.bvid}" data-bvid="${v.bvid}">
             <div class="cover-wrapper">
                 <img src="${v.cover}" alt="" loading="lazy" referrerpolicy="no-referrer">
+                <button class="unfav-btn" title="取消收藏">✕</button>
                 <span class="duration-badge">${durationStr}</span>
                 <span class="summary-badge ${badgeClass}" id="badge-${v.bvid}">${badgeText}</span>
             </div>
@@ -964,7 +976,12 @@ async function showVideoSummary(bvid, path) {
         }
         const data = await res.json();
         if (data.content) {
-            readingContent.innerHTML = renderMarkdown(data.content);
+            // Add header with unfavorite button
+            const headerHtml = `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--error);border-color:var(--error);" onclick="unfavoriteFromReading('${bvid}')">✕ 取消收藏</button>
+                </div>`;
+            readingContent.innerHTML = headerHtml + renderMarkdown(data.content);
             // Make links in summary open externally
             readingContent.querySelectorAll('a').forEach(a => {
                 a.addEventListener('click', (e) => {
@@ -985,6 +1002,70 @@ function closeFavReading() {
     document.getElementById('favVideoGrid').style.display = '';
     document.getElementById('favAutoProgress').style.display = '';
     document.getElementById('favLoadMore').style.display = favHasMore ? '' : 'none';
+}
+
+async function unfavoriteVideo(bvid, cardEl) {
+    if (!currentFavId) return;
+    if (!confirm('确定取消收藏这个视频？')) return;
+
+    // Visual feedback
+    if (cardEl) {
+        cardEl.style.opacity = '0.4';
+        cardEl.style.pointerEvents = 'none';
+    }
+
+    try {
+        const res = await fetch(`/api/favorites/${currentFavId}/video/${bvid}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert('取消收藏失败: ' + data.error);
+            if (cardEl) {
+                cardEl.style.opacity = '';
+                cardEl.style.pointerEvents = '';
+            }
+            return;
+        }
+        // Remove card with animation
+        if (cardEl) {
+            cardEl.style.transition = 'all 0.3s ease';
+            cardEl.style.transform = 'scale(0.8)';
+            cardEl.style.opacity = '0';
+            setTimeout(() => cardEl.remove(), 300);
+        }
+        favVideoData.delete(bvid);
+    } catch (err) {
+        alert('取消收藏失败: ' + err.message);
+        if (cardEl) {
+            cardEl.style.opacity = '';
+            cardEl.style.pointerEvents = '';
+        }
+    }
+}
+
+async function unfavoriteFromReading(bvid) {
+    if (!currentFavId) return;
+    if (!confirm('确定取消收藏这个视频？')) return;
+
+    try {
+        const res = await fetch(`/api/favorites/${currentFavId}/video/${bvid}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert('取消收藏失败: ' + data.error);
+            return;
+        }
+        // Remove card from grid
+        const card = document.getElementById(`card-${bvid}`);
+        if (card) card.remove();
+        favVideoData.delete(bvid);
+        // Go back to grid
+        closeFavReading();
+    } catch (err) {
+        alert('取消收藏失败: ' + err.message);
+    }
 }
 
 function showPage(pageId) {
