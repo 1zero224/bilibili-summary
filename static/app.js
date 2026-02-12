@@ -719,10 +719,13 @@ function selectFavoriteFolder(favId, title) {
     document.getElementById('favBrowseTitle').textContent = `⭐ ${title}`;
     document.getElementById('favBrowseSubtitle').textContent = '加载中...';
 
-    // Clear and load
-    document.getElementById('favVideoGrid').innerHTML = '';
+    // Clear and load — reset display states
+    const grid = document.getElementById('favVideoGrid');
+    grid.innerHTML = '';
+    grid.style.display = '';
     document.getElementById('favAutoProgress').innerHTML = '';
     document.getElementById('favReadingView').style.display = 'none';
+    document.getElementById('favLoadMore').style.display = 'none';
 
     loadFavoriteVideos(favId, 1, false);
 }
@@ -944,13 +947,14 @@ async function showVideoSummary(bvid, path) {
     readingContent.innerHTML = '<p style="color:var(--text-muted);">加载中...</p>';
     grid.style.display = 'none';
     loadMore.style.display = 'none';
+    document.getElementById('favAutoProgress').style.display = 'none';
     readingView.style.display = '';
 
     try {
         const res = await fetch(`/api/summary/${path}`);
         const data = await res.json();
         if (data.content) {
-            readingContent.innerHTML = marked.parse(data.content);
+            readingContent.innerHTML = renderMarkdown(data.content);
             // Make links in summary open externally
             readingContent.querySelectorAll('a').forEach(a => {
                 a.addEventListener('click', (e) => {
@@ -969,6 +973,7 @@ async function showVideoSummary(bvid, path) {
 function closeFavReading() {
     document.getElementById('favReadingView').style.display = 'none';
     document.getElementById('favVideoGrid').style.display = '';
+    document.getElementById('favAutoProgress').style.display = '';
     document.getElementById('favLoadMore').style.display = favHasMore ? '' : 'none';
 }
 
