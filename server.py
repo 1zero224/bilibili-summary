@@ -687,7 +687,7 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                     break
 
             if not audio_stream:
-                yield f"data: {json.dumps({'step': 'error', 'message': '无法获取音频流'})}\n\n"
+                yield f"data: {json.dumps({'step': 'error', 'message': '无法获取音频流（可能是会员专属视频）'})}\n\n"
                 return
 
             # Step 3: Download audio
