@@ -598,6 +598,45 @@ async def unfavorite_video(fav_id: int, bvid: str):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@app.post("/api/retry/{bvid}")
+async def retry_summarize(bvid: str, output_subdir: str = "favorites"):
+    """Force re-summarize a single video by deleting existing no_subtitle file."""
+    if not credential:
+        return JSONResponse(status_code=401, content={"error": "未登录 Bilibili"})
+
+    try:
+        # Get video info to find the file
+        v = video.Video(bvid=bvid, credential=credential)
+        info = await v.get_info()
+        title = info.get("title", bvid)
+        safe_title = sanitize_filename(title)
+
+        # Delete existing no_subtitle file if present
+        nosub_path = Path("summary") / output_subdir / "no_subtitle" / f"{safe_title}.md"
+        if nosub_path.exists():
+            nosub_path.unlink()
+
+        # Reset retry count
+        clear_retry_count(output_subdir, safe_title)
+
+        # Run summarization as a task
+        task_id = f"retry-{bvid}-{int(time.time()*1000)}"
+
+        async def _run():
+            client = anthropic.AsyncAnthropic(
+                base_url=os.getenv('ANTHROPIC_BASE_URL'),
+                api_key=os.getenv('ANTHROPIC_AUTH_TOKEN')
+            )
+            await process_single_video(bvid, client, credential, output_subdir, task_id)
+            await send_progress(task_id, "done", {"total": 1})
+
+        asyncio.create_task(_run())
+        return {"task_id": task_id, "title": title}
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/progress/{task_id}")
 async def progress_stream(task_id: str, request: Request):
     last_id = int(request.headers.get("Last-Event-ID", "-1"))

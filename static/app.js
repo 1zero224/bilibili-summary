@@ -976,9 +976,16 @@ async function showVideoSummary(bvid, path) {
         }
         const data = await res.json();
         if (data.content) {
-            // Add header with unfavorite button
+            // Detect no-subtitle content → show retry button
+            const isNoSub = data.content.includes('无法获取字幕');
+            const retryBtn = isNoSub
+                ? `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--accent);border-color:var(--accent);" onclick="retrySummarize('${bvid}')">🔄 重新获取字幕</button>`
+                : '';
             const headerHtml = `
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <div style="display:flex;gap:8px;">
+                        ${retryBtn}
+                    </div>
                     <button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--error);border-color:var(--error);" onclick="unfavoriteFromReading('${bvid}')">✕ 取消收藏</button>
                 </div>`;
             readingContent.innerHTML = headerHtml + renderMarkdown(data.content);
@@ -1002,6 +1009,66 @@ function closeFavReading() {
     document.getElementById('favVideoGrid').style.display = '';
     document.getElementById('favAutoProgress').style.display = '';
     document.getElementById('favLoadMore').style.display = favHasMore ? '' : 'none';
+}
+
+async function retrySummarize(bvid) {
+    const readingContent = document.getElementById('favReadingContent');
+    readingContent.innerHTML = '<p style="color:var(--text-muted);">🔄 正在重新获取字幕并生成总结...</p>';
+
+    try {
+        const res = await fetch(`/api/retry/${bvid}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.error) {
+            readingContent.innerHTML = `<p style="color:var(--error);">重试失败: ${data.error}</p>`;
+            return;
+        }
+
+        const taskId = data.task_id;
+        readingContent.innerHTML = '<p style="color:var(--text-muted);">⏳ 正在获取字幕...</p>';
+
+        // Listen to SSE for progress
+        const evtSrc = new EventSource(`/api/progress/${taskId}`);
+        evtSrc.onmessage = (e) => {
+            try {
+                const msg = JSON.parse(e.data);
+                const d = msg.data || {};
+
+                if (msg.event === 'processing') {
+                    readingContent.innerHTML = `<p style="color:var(--text-muted);">⏳ ${d.step || '处理中'}...</p>`;
+                } else if (msg.event === 'completed') {
+                    evtSrc.close();
+                    // Update card badge
+                    const badge = document.getElementById(`badge-${bvid}`);
+                    if (badge) {
+                        if (d.status === 'no_subtitle') {
+                            badge.className = 'summary-badge no_subtitle';
+                            badge.textContent = '无字幕';
+                            readingContent.innerHTML = '<p style="color:var(--warning);">⚠️ 仍然无法获取字幕</p>';
+                        } else {
+                            badge.className = 'summary-badge done';
+                            badge.textContent = '已总结';
+                            // Update Map and reload summary
+                            const vdata = favVideoData.get(bvid);
+                            if (vdata && d.path) {
+                                vdata.summaryPath = d.path;
+                            }
+                            showVideoSummary(bvid, d.path);
+                        }
+                    }
+                } else if (msg.event === 'error') {
+                    evtSrc.close();
+                    readingContent.innerHTML = `<p style="color:var(--error);">重试失败: ${d.message || '未知错误'}</p>`;
+                } else if (msg.event === 'done') {
+                    evtSrc.close();
+                }
+            } catch (_) { }
+        };
+        evtSrc.onerror = () => {
+            evtSrc.close();
+        };
+    } catch (err) {
+        readingContent.innerHTML = `<p style="color:var(--error);">重试失败: ${err.message}</p>`;
+    }
 }
 
 async function unfavoriteVideo(bvid, cardEl) {
