@@ -8,6 +8,7 @@ import os
 import asyncio
 import json
 import time
+import tempfile
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -21,6 +22,7 @@ from dotenv import load_dotenv
 import anthropic
 
 from bilibili_api import video, user as bili_user, search, favorite_list
+from bilibili_api.video import VideoDownloadURLDataDetecter
 from bilibili_api.utils.network import Credential
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
 
@@ -641,6 +643,135 @@ async def retry_summarize(bvid: str, output_subdir: str = "favorites"):
 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# ASR-based Summarization (for videos without subtitles)
+# ---------------------------------------------------------------------------
+@app.post("/api/asr-summarize/{bvid}")
+async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
+    """Download audio → GLM-ASR transcription → LLM summary via SSE."""
+    if not credential:
+        return JSONResponse(status_code=401, content={"error": "未登录 Bilibili"})
+    if not ai_client:
+        return JSONResponse(status_code=400, content={"error": "未配置 AI API"})
+
+    async def event_stream():
+        try:
+            # Step 1: Get video info
+            yield f"data: {json.dumps({'step': 'info', 'message': '获取视频信息...'})}\n\n"
+            v = video.Video(bvid=bvid, credential=credential)
+            info = await v.get_info()
+            title = info.get("title", bvid)
+            duration = info.get("duration", 0)
+            owner = info.get("owner", {})
+            author_name = owner.get("name", "")
+            author_uid = owner.get("mid", 0)
+            safe_title = sanitize_filename(title)
+            url = f"https://www.bilibili.com/video/{bvid}"
+
+            # Step 2: Get audio download URL
+            yield f"data: {json.dumps({'step': 'audio_url', 'message': '获取音频流地址...'})}\n\n"
+            download_data = await v.get_download_url(page_index=0)
+            detector = VideoDownloadURLDataDetecter(download_data)
+            streams = detector.detect_best_streams()
+
+            audio_stream = None
+            for s in streams:
+                if hasattr(s, 'audio_quality'):
+                    audio_stream = s
+                    break
+
+            if not audio_stream:
+                yield f"data: {json.dumps({'step': 'error', 'message': '无法获取音频流'})}\n\n"
+                return
+
+            # Step 3: Download audio
+            yield f"data: {json.dumps({'step': 'download', 'message': '下载音频中...'})}\n\n"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                "Referer": "https://www.bilibili.com",
+            }
+            audio_data = b""
+            async with aiohttp.ClientSession() as session:
+                async with session.get(audio_stream.url, headers=headers) as resp:
+                    if resp.status != 200:
+                        yield f"data: {json.dumps({'step': 'error', 'message': f'音频下载失败: HTTP {resp.status}'})}\n\n"
+                        return
+                    audio_data = await resp.read()
+
+            audio_size_mb = len(audio_data) / (1024 * 1024)
+            yield f"data: {json.dumps({'step': 'downloaded', 'message': f'音频下载完成 ({audio_size_mb:.1f} MB)'})}\n\n"
+
+            # Step 4: Send to GLM-ASR for transcription
+            yield f"data: {json.dumps({'step': 'asr', 'message': '语音识别中 (GLM-ASR)...'})}\n\n"
+
+            asr_url = (os.getenv('ANTHROPIC_BASE_URL', '') or 'https://open.bigmodel.cn/api/paas/v4').rstrip('/')
+            # Derive the base: if it ends with /anthropic or similar, go up
+            if '/anthropic' in asr_url:
+                asr_url = asr_url.rsplit('/anthropic', 1)[0]
+            asr_endpoint = f"{asr_url}/audio/transcriptions"
+            api_key = os.getenv('ANTHROPIC_AUTH_TOKEN', '')
+
+            # Write audio to temp file for upload
+            with tempfile.NamedTemporaryFile(suffix=".m4s", delete=False) as tmp:
+                tmp.write(audio_data)
+                tmp_path = tmp.name
+
+            try:
+                form = aiohttp.FormData()
+                form.add_field('model', 'glm-asr-2512')
+                form.add_field('stream', 'false')
+                form.add_field('file', open(tmp_path, 'rb'), filename='audio.m4s', content_type='audio/mp4')
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        asr_endpoint,
+                        data=form,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        timeout=aiohttp.ClientTimeout(total=300),
+                    ) as resp:
+                        if resp.status != 200:
+                            error_text = await resp.text()
+                            yield f"data: {json.dumps({'step': 'error', 'message': f'ASR 失败: HTTP {resp.status} - {error_text[:200]}'})}\n\n"
+                            return
+                        asr_result = await resp.json()
+            finally:
+                os.unlink(tmp_path)
+
+            transcript = asr_result.get('text', '')
+            if not transcript:
+                yield f"data: {json.dumps({'step': 'error', 'message': 'ASR 返回空文本'})}\n\n"
+                return
+
+            transcript_len = len(transcript)
+            yield f"data: {json.dumps({'step': 'transcribed', 'message': f'转录完成 ({transcript_len} 字)'})}\n\n"
+
+            # Step 5: LLM Summarization
+            yield f"data: {json.dumps({'step': 'summarize', 'message': '生成总结中...'})}\n\n"
+            summary_text, llm_time = await summarize_with_claude(
+                subtitle=transcript, title=title, client=ai_client, model=DEFAULT_MODEL
+            )
+
+            # Step 6: Save result
+            # Delete old no_subtitle file if exists
+            nosub_path = DATA_DIR / "summary" / output_subdir / "no_subtitle" / f"{safe_title}.md"
+            if nosub_path.exists():
+                nosub_path.unlink()
+
+            save_summary(
+                title=title, bvid=bvid, url=url, duration=duration,
+                summary=summary_text, output_subdir=output_subdir,
+                author_name=author_name, author_uid=author_uid,
+            )
+
+            new_path = f"{output_subdir}/{safe_title}.md"
+            yield f"data: {json.dumps({'step': 'done', 'message': '总结完成!', 'path': new_path, 'llm_time': round(llm_time, 1)})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'step': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 # ---------------------------------------------------------------------------

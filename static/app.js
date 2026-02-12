@@ -997,9 +997,11 @@ async function showVideoSummary(bvid, path) {
             let actionsHtml = '';
             if (isNoSub) {
                 actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--accent);border-color:var(--accent);" onclick="retrySummarize('${bvid}')">重试</button>`;
+                actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--success);border-color:var(--success);" onclick="asrSummarize('${bvid}')"><i data-lucide="mic" class="lucide-icon" style="width:12px;height:12px;"></i> 语音识别总结</button>`;
             }
             actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--error);border-color:var(--error);" onclick="unfavoriteFromReading('${bvid}')">✕ 取消收藏</button>`;
             actions.innerHTML = actionsHtml;
+            lucide.createIcons();
 
             readingContent.innerHTML = renderMarkdown(data.content);
 
@@ -1116,6 +1118,73 @@ async function retrySummarize(bvid) {
         };
     } catch (err) {
         readingContent.innerHTML = `<p style="color:var(--error);">重试失败: ${err.message}</p>`;
+    }
+}
+
+async function asrSummarize(bvid) {
+    const readingContent = document.getElementById('favReadingContent');
+    const actions = document.getElementById('favReadingActions');
+    actions.innerHTML = ''; // hide buttons during ASR
+
+    readingContent.innerHTML = '<p style="color:var(--text-muted);">◌ 准备语音识别...</p>';
+
+    try {
+        const res = await fetch(`/api/asr-summarize/${bvid}`, { method: 'POST' });
+        if (!res.ok) {
+            const err = await res.json();
+            readingContent.innerHTML = `<p style="color:var(--error);">ASR 失败: ${err.error || '未知错误'}</p>`;
+            return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { value, done: streamDone } = await reader.read();
+            if (streamDone) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const d = JSON.parse(line.slice(6));
+
+                    if (d.step === 'error') {
+                        readingContent.innerHTML = `<p style="color:var(--error);">✗ ${d.message}</p>`;
+                        return;
+                    }
+
+                    if (d.step === 'done') {
+                        // Update badge
+                        const badge = document.getElementById(`badge-${bvid}`);
+                        if (badge) {
+                            badge.className = 'summary-badge done';
+                            badge.textContent = '已总结';
+                        }
+                        const vdata = favVideoData.get(bvid);
+                        if (vdata && d.path) {
+                            vdata.summaryPath = d.path;
+                        }
+                        showVideoSummary(bvid, d.path);
+                        return;
+                    }
+
+                    // Progress steps
+                    const icons = {
+                        'info': '◌', 'audio_url': '◌', 'download': '↓',
+                        'downloaded': '✓', 'asr': '♫', 'transcribed': '✓', 'summarize': '◌'
+                    };
+                    const icon = icons[d.step] || '◌';
+                    readingContent.innerHTML = `<p style="color:var(--text-muted);">${icon} ${d.message}</p>`;
+                } catch (_) { }
+            }
+        }
+    } catch (err) {
+        readingContent.innerHTML = `<p style="color:var(--error);">ASR 失败: ${err.message}</p>`;
     }
 }
 
