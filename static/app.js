@@ -1122,17 +1122,24 @@ async function retrySummarize(bvid) {
 }
 
 async function asrSummarize(bvid) {
-    const readingContent = document.getElementById('favReadingContent');
-    const actions = document.getElementById('favReadingActions');
-    actions.innerHTML = ''; // hide buttons during ASR
-
-    readingContent.innerHTML = '<p style="color:var(--text-muted);">◌ 准备语音识别...</p>';
+    // Create toast notification
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.innerHTML = `
+        <div class="toast-title">🎤 语音识别总结</div>
+        <div class="toast-message">◌ 准备中...</div>
+    `;
+    container.appendChild(toast);
+    const msgEl = toast.querySelector('.toast-message');
 
     try {
         const res = await fetch(`/api/asr-summarize/${bvid}`, { method: 'POST' });
         if (!res.ok) {
             const err = await res.json();
-            readingContent.innerHTML = `<p style="color:var(--error);">ASR 失败: ${err.error || '未知错误'}</p>`;
+            msgEl.textContent = `✗ ${err.error || '未知错误'}`;
+            toast.classList.add('toast-error');
+            setTimeout(() => { toast.classList.add('toast-fadeout'); setTimeout(() => toast.remove(), 300); }, 5000);
             return;
         }
 
@@ -1146,7 +1153,7 @@ async function asrSummarize(bvid) {
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-            buffer = lines.pop(); // keep incomplete line
+            buffer = lines.pop();
 
             for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
@@ -1154,11 +1161,15 @@ async function asrSummarize(bvid) {
                     const d = JSON.parse(line.slice(6));
 
                     if (d.step === 'error') {
-                        readingContent.innerHTML = `<p style="color:var(--error);">✗ ${d.message}</p>`;
+                        msgEl.textContent = `✗ ${d.message}`;
+                        toast.classList.add('toast-error');
+                        setTimeout(() => { toast.classList.add('toast-fadeout'); setTimeout(() => toast.remove(), 300); }, 8000);
                         return;
                     }
 
                     if (d.step === 'done') {
+                        msgEl.textContent = `✓ 总结完成！(${d.llm_time}s)`;
+                        toast.classList.add('toast-done');
                         // Update badge
                         const badge = document.getElementById(`badge-${bvid}`);
                         if (badge) {
@@ -1169,7 +1180,12 @@ async function asrSummarize(bvid) {
                         if (vdata && d.path) {
                             vdata.summaryPath = d.path;
                         }
-                        showVideoSummary(bvid, d.path);
+                        // Auto-open the summary if user is still on this video's reading view
+                        const readingView = document.getElementById('favReadingView');
+                        if (readingView && readingView.style.display === 'block') {
+                            showVideoSummary(bvid, d.path);
+                        }
+                        setTimeout(() => { toast.classList.add('toast-fadeout'); setTimeout(() => toast.remove(), 300); }, 5000);
                         return;
                     }
 
@@ -1178,13 +1194,14 @@ async function asrSummarize(bvid) {
                         'info': '◌', 'audio_url': '◌', 'download': '↓',
                         'downloaded': '✓', 'asr': '♫', 'transcribed': '✓', 'summarize': '◌'
                     };
-                    const icon = icons[d.step] || '◌';
-                    readingContent.innerHTML = `<p style="color:var(--text-muted);">${icon} ${d.message}</p>`;
+                    msgEl.textContent = `${icons[d.step] || '◌'} ${d.message}`;
                 } catch (_) { }
             }
         }
     } catch (err) {
-        readingContent.innerHTML = `<p style="color:var(--error);">ASR 失败: ${err.message}</p>`;
+        msgEl.textContent = `✗ ${err.message}`;
+        toast.classList.add('toast-error');
+        setTimeout(() => { toast.classList.add('toast-fadeout'); setTimeout(() => toast.remove(), 300); }, 5000);
     }
 }
 

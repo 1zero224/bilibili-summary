@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 import anthropic
 
 from bilibili_api import video, user as bili_user, search, favorite_list
-from bilibili_api.video import VideoDownloadURLDataDetecter
+from bilibili_api.video import VideoDownloadURLDataDetecter, AudioQuality
 from bilibili_api.utils.network import Credential
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
 
@@ -670,11 +670,15 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
             safe_title = sanitize_filename(title)
             url = f"https://www.bilibili.com/video/{bvid}"
 
-            # Step 2: Get audio download URL
+            # Step 2: Get audio download URL (use lowest quality to minimize size)
             yield f"data: {json.dumps({'step': 'audio_url', 'message': '获取音频流地址...'})}\n\n"
             download_data = await v.get_download_url(page_index=0)
             detector = VideoDownloadURLDataDetecter(download_data)
-            streams = detector.detect_best_streams()
+            streams = detector.detect_best_streams(
+                audio_max_quality=AudioQuality._64K,
+                no_dolby_audio=True,
+                no_hires=True,
+            )
 
             audio_stream = None
             for s in streams:
@@ -706,11 +710,7 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
             # Step 4: Send to GLM-ASR for transcription
             yield f"data: {json.dumps({'step': 'asr', 'message': '语音识别中 (GLM-ASR)...'})}\n\n"
 
-            asr_url = (os.getenv('ANTHROPIC_BASE_URL', '') or 'https://open.bigmodel.cn/api/paas/v4').rstrip('/')
-            # Derive the base: if it ends with /anthropic or similar, go up
-            if '/anthropic' in asr_url:
-                asr_url = asr_url.rsplit('/anthropic', 1)[0]
-            asr_endpoint = f"{asr_url}/audio/transcriptions"
+            asr_endpoint = "https://open.bigmodel.cn/api/paas/v4/audio/transcriptions"
             api_key = os.getenv('ANTHROPIC_AUTH_TOKEN', '')
 
             # Write audio to temp file for upload
@@ -719,27 +719,71 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                 tmp_path = tmp.name
 
             try:
-                form = aiohttp.FormData()
-                form.add_field('model', 'glm-asr-2512')
-                form.add_field('stream', 'false')
-                form.add_field('file', open(tmp_path, 'rb'), filename='audio.m4s', content_type='audio/mp4')
+                MAX_SIZE = 24 * 1024 * 1024  # 24MB to stay under 25MB limit
+                if len(audio_data) <= MAX_SIZE:
+                    # Single file upload
+                    form = aiohttp.FormData()
+                    form.add_field('model', 'glm-asr-2512')
+                    form.add_field('stream', 'false')
+                    form.add_field('file', open(tmp_path, 'rb'), filename='audio.m4s', content_type='audio/mp4')
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        asr_endpoint,
-                        data=form,
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        timeout=aiohttp.ClientTimeout(total=300),
-                    ) as resp:
-                        if resp.status != 200:
-                            error_text = await resp.text()
-                            yield f"data: {json.dumps({'step': 'error', 'message': f'ASR 失败: HTTP {resp.status} - {error_text[:200]}'})}\n\n"
-                            return
-                        asr_result = await resp.json()
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            asr_endpoint,
+                            data=form,
+                            headers={"Authorization": f"Bearer {api_key}"},
+                            timeout=aiohttp.ClientTimeout(total=300),
+                        ) as resp:
+                            resp_text = await resp.text()
+                            print(f"[ASR] status={resp.status}, response={resp_text[:500]}")
+                            if resp.status != 200:
+                                yield f"data: {json.dumps({'step': 'error', 'message': f'ASR 失败: HTTP {resp.status} - {resp_text[:200]}'})}\n\n"
+                                return
+                            asr_result = json.loads(resp_text)
+                    transcript = asr_result.get('text', '')
+                else:
+                    # Split into chunks and transcribe each
+                    num_chunks = (len(audio_data) + MAX_SIZE - 1) // MAX_SIZE
+                    yield f"data: {json.dumps({'step': 'asr', 'message': f'音频较大 ({audio_size_mb:.1f}MB)，分 {num_chunks} 段转录...'})}\n\n"
+                    transcripts = []
+                    for i in range(num_chunks):
+                        chunk_start = i * MAX_SIZE
+                        chunk_end = min((i + 1) * MAX_SIZE, len(audio_data))
+                        chunk_data = audio_data[chunk_start:chunk_end]
+
+                        chunk_path = tmp_path + f".chunk{i}"
+                        with open(chunk_path, 'wb') as cf:
+                            cf.write(chunk_data)
+
+                        try:
+                            yield f"data: {json.dumps({'step': 'asr', 'message': f'转录中 ({i+1}/{num_chunks})...'})}\n\n"
+                            form = aiohttp.FormData()
+                            form.add_field('model', 'glm-asr-2512')
+                            form.add_field('stream', 'false')
+                            form.add_field('file', open(chunk_path, 'rb'), filename=f'audio_chunk{i}.m4s', content_type='audio/mp4')
+
+                            async with aiohttp.ClientSession() as session:
+                                async with session.post(
+                                    asr_endpoint,
+                                    data=form,
+                                    headers={"Authorization": f"Bearer {api_key}"},
+                                    timeout=aiohttp.ClientTimeout(total=300),
+                                ) as resp:
+                                    resp_text = await resp.text()
+                                    print(f"[ASR chunk {i}] status={resp.status}, response={resp_text[:300]}")
+                                    if resp.status != 200:
+                                        yield f"data: {json.dumps({'step': 'error', 'message': f'ASR 分片{i+1}失败: {resp_text[:200]}'})}\n\n"
+                                        return
+                                    chunk_result = json.loads(resp_text)
+                                    transcripts.append(chunk_result.get('text', ''))
+                        finally:
+                            os.unlink(chunk_path)
+
+                    transcript = ' '.join(t for t in transcripts if t)
             finally:
-                os.unlink(tmp_path)
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
-            transcript = asr_result.get('text', '')
             if not transcript:
                 yield f"data: {json.dumps({'step': 'error', 'message': 'ASR 返回空文本'})}\n\n"
                 return
