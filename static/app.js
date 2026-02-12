@@ -619,6 +619,7 @@ async function submitUser() {
 let currentFavId = null;
 let currentFavPage = 1;
 let favHasMore = false;
+const favVideoData = new Map(); // bvid -> { summaryPath, title, ... }
 
 async function loadFavoriteFolders() {
     const container = document.getElementById('sidebarFavorites');
@@ -694,10 +695,10 @@ document.getElementById('favVideoGrid').addEventListener('click', (e) => {
     if (!card) return;
 
     const bvid = card.dataset.bvid;
-    const summaryPath = card.dataset.summaryPath;
+    const vdata = favVideoData.get(bvid);
 
-    if (summaryPath) {
-        showVideoSummary(bvid, decodeURIComponent(summaryPath));
+    if (vdata && vdata.summaryPath) {
+        showVideoSummary(bvid, vdata.summaryPath);
     } else {
         openExternal(`https://www.bilibili.com/video/${bvid}`);
     }
@@ -777,11 +778,14 @@ function renderVideoCard(v) {
         'none': '未总结',
     }[v.summary_status] || '未总结';
 
-    // Use data attributes instead of inline onclick to avoid escaping issues
-    const summaryAttr = v.summary_path ? `data-summary-path="${encodeURIComponent(v.summary_path)}"` : '';
+    // Store video data in JS Map for reliable click handling
+    favVideoData.set(v.bvid, {
+        summaryPath: v.summary_path || null,
+        title: v.title,
+    });
 
     return `
-        <div class="video-card" id="card-${v.bvid}" data-bvid="${v.bvid}" ${summaryAttr}>
+        <div class="video-card" id="card-${v.bvid}" data-bvid="${v.bvid}">
             <div class="cover-wrapper">
                 <img src="${v.cover}" alt="" loading="lazy" referrerpolicy="no-referrer">
                 <span class="duration-badge">${durationStr}</span>
@@ -893,10 +897,10 @@ function listenAutoSummarize(taskId, progressEl) {
                             } else {
                                 badge.className = 'summary-badge done';
                                 badge.textContent = '已总结';
-                                // Update card data attribute for event delegation
-                                const card = document.getElementById(`card-${d.bvid}`);
-                                if (card && d.path) {
-                                    card.dataset.summaryPath = encodeURIComponent(d.path);
+                                // Update JS Map for event delegation
+                                const vdata = favVideoData.get(d.bvid);
+                                if (vdata && d.path) {
+                                    vdata.summaryPath = d.path;
                                 }
                             }
                         }
@@ -948,10 +952,16 @@ async function showVideoSummary(bvid, path) {
     grid.style.display = 'none';
     loadMore.style.display = 'none';
     document.getElementById('favAutoProgress').style.display = 'none';
-    readingView.style.display = '';
+    readingView.style.display = 'block';
 
     try {
-        const res = await fetch(`/api/summary/${path}`);
+        // Encode path segments for URL (preserve /)
+        const encodedPath = path.split('/').map(s => encodeURIComponent(s)).join('/');
+        const res = await fetch(`/api/summary/${encodedPath}`);
+        if (!res.ok) {
+            readingContent.innerHTML = `<p style="color:var(--error);">HTTP ${res.status}: 无法加载总结</p>`;
+            return;
+        }
         const data = await res.json();
         if (data.content) {
             readingContent.innerHTML = renderMarkdown(data.content);
@@ -963,7 +973,7 @@ async function showVideoSummary(bvid, path) {
                 });
             });
         } else {
-            readingContent.innerHTML = '<p style="color:var(--error);">无法加载总结</p>';
+            readingContent.innerHTML = '<p style="color:var(--error);">总结内容为空</p>';
         }
     } catch (err) {
         readingContent.innerHTML = `<p style="color:var(--error);">加载失败: ${err.message}</p>`;
