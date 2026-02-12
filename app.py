@@ -5,9 +5,17 @@ pywebview 原生窗口 + FastAPI 后端
 """
 
 import threading
+import webbrowser
 import webview
 import uvicorn
 from server import app as fastapi_app
+
+
+class JsApi:
+    """Expose Python functions to JavaScript via pywebview."""
+    def open_url(self, url: str):
+        """Open URL in system default browser."""
+        webbrowser.open(url)
 
 
 def start_server():
@@ -19,6 +27,8 @@ if __name__ == "__main__":
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
 
+    api = JsApi()
+
     # Create native window
     webview.create_window(
         "BiliSummary — Bilibili 视频总结器",
@@ -26,5 +36,6 @@ if __name__ == "__main__":
         width=1100,
         height=720,
         min_size=(900, 600),
+        js_api=api,
     )
     webview.start()

@@ -2,6 +2,29 @@
    BiliSummary — App Logic
    ============================================= */
 
+// ---------------------------------------------------------------------------
+// Theme: Dark / Light
+// ---------------------------------------------------------------------------
+function initTheme() {
+    const saved = localStorage.getItem('bilisummary-theme') || 'dark';
+    applyTheme(saved);
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('bilisummary-theme', next);
+    applyTheme(next);
+}
+
+initTheme();
+
 // Cache for summaries data
 let summariesData = null;
 
@@ -308,6 +331,14 @@ function renderMarkdown(md) {
 // ---------------------------------------------------------------------------
 // External link handler — open in system browser
 // ---------------------------------------------------------------------------
+function openExternal(url) {
+    if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.open_url(url);
+    } else {
+        window.open(url, '_blank');
+    }
+}
+
 document.addEventListener('click', (e) => {
     const link = e.target.closest('a[href]');
     if (!link) return;
@@ -315,7 +346,7 @@ document.addEventListener('click', (e) => {
     if (href && href.startsWith('http')) {
         e.preventDefault();
         e.stopPropagation();
-        window.open(href, '_blank');
+        openExternal(href);
     }
 });
 
@@ -490,10 +521,6 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
-
-function openExternal(url) {
-    window.open(url, '_blank');
 }
 
 // ---------------------------------------------------------------------------
