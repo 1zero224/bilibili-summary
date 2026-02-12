@@ -205,11 +205,29 @@ function renderMarkdown(md) {
         .replace(/^# (.+)$/gm, '<h1>$1</h1>')
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/^---$/gm, '<hr>')
+        // Markdown links: [text](url)
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" class="ext-link" target="_blank">$1</a>')
+        // Bare URLs (not already inside an href)
+        .replace(/(?<!href=")(https?:\/\/[^\s<"]+)/g, '<a href="$1" class="ext-link" target="_blank">$1</a>')
         .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
         .replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
-        .replace(/^(?!<[hlu]|<li|<hr)(.+)$/gm, '<p>$1</p>')
+        .replace(/^(?!<[hlu]|<li|<hr|<a)(.+)$/gm, '<p>$1</p>')
         .replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
 }
+
+// ---------------------------------------------------------------------------
+// External link handler — open in system browser
+// ---------------------------------------------------------------------------
+document.addEventListener('click', (e) => {
+    const link = e.target.closest('a[href]');
+    if (!link) return;
+    const href = link.getAttribute('href');
+    if (href && href.startsWith('http')) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.open(href, '_blank');
+    }
+});
 
 // ---------------------------------------------------------------------------
 // SSE Progress Listener
@@ -382,6 +400,10 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function openExternal(url) {
+    window.open(url, '_blank');
 }
 
 // ---------------------------------------------------------------------------
