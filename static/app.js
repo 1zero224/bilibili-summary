@@ -121,6 +121,7 @@ function startLogin() {
         // Refresh status and close modal after a beat
         setTimeout(() => {
             checkStatus();
+            loadFavoriteFolders();
             modal.classList.remove('active');
         }, 1200);
     });
@@ -160,6 +161,7 @@ async function doLogout() {
     try {
         await fetch('/api/logout', { method: 'POST' });
         checkStatus();
+        loadFavoriteFolders();
     } catch (err) {
         alert('注销失败: ' + err.message);
     }
