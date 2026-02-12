@@ -214,7 +214,7 @@ async def summarize_with_claude(subtitle: str, title: str, client: anthropic.Asy
     return "⚠️ 生成总结失败 (Unknown)", 0.0
 
 
-def save_summary(title: str, bvid: str, url: str, duration: int, summary: str, output_subdir: str = "standalone"):
+def save_summary(title: str, bvid: str, url: str, duration: int, summary: str, output_subdir: str = "standalone", author_name: str = "", author_uid: int = 0):
     """保存总结到 markdown 文件"""
     # 创建 summary 目录
     summary_dir = Path("summary") / output_subdir
@@ -228,12 +228,19 @@ def save_summary(title: str, bvid: str, url: str, duration: int, summary: str, o
     minutes, seconds = divmod(duration, 60)
     duration_str = f"{minutes:02d}:{seconds:02d}"
     
+    # Author line
+    author_line = ""
+    if author_name and author_uid:
+        author_line = f"**作者**: [{author_name}](https://space.bilibili.com/{author_uid})\n"
+    elif author_name:
+        author_line = f"**作者**: {author_name}\n"
+
     # 生成 markdown 内容
     content = f"""# {title}
 
 **BV号**: {bvid}
 **视频链接**: https://www.bilibili.com/video/{bvid}
-**时长**: {duration_str}
+{author_line}**时长**: {duration_str}
 **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 ---
@@ -261,6 +268,9 @@ async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: 
         info = await v.get_info()
         title = info.get('title', bvid)
         duration = info.get('duration', 0)
+        owner = info.get('owner', {})
+        author_name = owner.get('name', '')
+        author_uid = owner.get('mid', 0)
         
         # 检查总结文件是否已存在 (benchmark 模式不跳过)
         if not benchmark:
@@ -308,7 +318,7 @@ async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: 
             final_output_subdir = f"{output_subdir}/no_subtitle"
         
         # 保存
-        save_summary(title, bvid, url, duration, summary, final_output_subdir)
+        save_summary(title, bvid, url, duration, summary, final_output_subdir, author_name=author_name, author_uid=author_uid)
         
     except Exception as e:
         print(f"  ❌ 处理失败: {e}")

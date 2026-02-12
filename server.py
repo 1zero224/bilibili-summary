@@ -221,6 +221,9 @@ async def process_single_video(url: str, model: str, output_subdir: str, task_id
         info = await v.get_info()
         title = info.get("title", bvid)
         duration = info.get("duration", 0)
+        owner = info.get("owner", {})
+        author_name = owner.get("name", "")
+        author_uid = owner.get("mid", 0)
         url = f"https://www.bilibili.com/video/{bvid}"
 
         # Check existing (both normal and no_subtitle dirs)
@@ -272,7 +275,7 @@ async def process_single_video(url: str, model: str, output_subdir: str, task_id
                 nosub_path.unlink()
                 clear_retry_count(output_subdir, safe_title)
 
-        save_summary(title, bvid, url, duration, summary, final_subdir)
+        save_summary(title, bvid, url, duration, summary, final_subdir, author_name=author_name, author_uid=author_uid)
 
         status = "no_subtitle" if not subtitle_text else "success"
         await send_progress(task_id, "completed", {
