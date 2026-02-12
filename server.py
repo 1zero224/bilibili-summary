@@ -715,29 +715,74 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
 
             # Write audio to temp file for conversion
             m4s_path = tempfile.mktemp(suffix=".m4s")
-            mp3_path = tempfile.mktemp(suffix=".mp3")
             with open(m4s_path, 'wb') as f:
                 f.write(audio_data)
 
-            # Convert m4s (fMP4) to mp3 using PyAV
-            yield f"data: {json.dumps({'step': 'asr', 'message': '转换音频格式 (m4s → mp3)...'})}\n\n"
+            # Convert m4s to 25-second mp3 segments using PyAV (ASR limit: 30s per file)
+            SEGMENT_DURATION = 25  # seconds, stay under 30s limit
+            yield f"data: {json.dumps({'step': 'asr', 'message': '切分音频并转换格式...'})}\n\n"
+
+            chunk_paths = []
             try:
                 import av as pyav
                 input_container = pyav.open(m4s_path)
-                output_container = pyav.open(mp3_path, 'w', format='mp3')
-                output_stream = output_container.add_stream('mp3', rate=16000)
-                output_stream.bit_rate = 64000  # 64kbps for small file size
+                audio_stream_info = input_container.streams.audio[0]
+                total_duration = float(audio_stream_info.duration * audio_stream_info.time_base) if audio_stream_info.duration else duration
+                num_segments = max(1, int(total_duration / SEGMENT_DURATION) + (1 if total_duration % SEGMENT_DURATION > 0.5 else 0))
 
+                print(f"[ASR] Audio duration: {total_duration:.1f}s, splitting into {num_segments} segments of {SEGMENT_DURATION}s")
+
+                # Decode all audio frames first
+                all_frames = []
                 for frame in input_container.decode(audio=0):
-                    frame.pts = None  # let encoder set pts
-                    for packet in output_stream.encode(frame):
-                        output_container.mux(packet)
-                # Flush
-                for packet in output_stream.encode():
-                    output_container.mux(packet)
-
-                output_container.close()
+                    all_frames.append(frame)
                 input_container.close()
+
+                if not all_frames:
+                    yield f"data: {json.dumps({'step': 'error', 'message': '音频解码失败: 无帧数据'})}\n\n"
+                    return
+
+                sample_rate = all_frames[0].sample_rate
+                samples_per_segment = SEGMENT_DURATION * sample_rate
+
+                # Calculate total samples
+                total_samples = sum(f.samples for f in all_frames)
+                num_segments = max(1, (total_samples + samples_per_segment - 1) // samples_per_segment)
+
+                # Split frames into segments by sample count
+                current_segment = 0
+                current_samples = 0
+                segment_frames = []
+
+                def write_segment(frames, seg_idx):
+                    seg_path = tempfile.mktemp(suffix=f"_seg{seg_idx}.mp3")
+                    out = pyav.open(seg_path, 'w', format='mp3')
+                    out_stream = out.add_stream('mp3', rate=16000)
+                    out_stream.bit_rate = 64000
+                    for fr in frames:
+                        fr.pts = None
+                        for pkt in out_stream.encode(fr):
+                            out.mux(pkt)
+                    for pkt in out_stream.encode():
+                        out.mux(pkt)
+                    out.close()
+                    return seg_path
+
+                for frame in all_frames:
+                    segment_frames.append(frame)
+                    current_samples += frame.samples
+                    if current_samples >= samples_per_segment:
+                        seg_path = write_segment(segment_frames, current_segment)
+                        chunk_paths.append(seg_path)
+                        current_segment += 1
+                        current_samples = 0
+                        segment_frames = []
+
+                # Write remaining frames
+                if segment_frames:
+                    seg_path = write_segment(segment_frames, current_segment)
+                    chunk_paths.append(seg_path)
+
             except Exception as conv_err:
                 yield f"data: {json.dumps({'step': 'error', 'message': f'音频转换失败: {conv_err}'})}\n\n"
                 return
@@ -745,76 +790,43 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                 if os.path.exists(m4s_path):
                     os.unlink(m4s_path)
 
-            mp3_size = os.path.getsize(mp3_path)
-            mp3_size_mb = mp3_size / (1024 * 1024)
-            print(f"[ASR] Converted mp3 size: {mp3_size_mb:.1f}MB")
+            num_chunks = len(chunk_paths)
+            yield f"data: {json.dumps({'step': 'asr', 'message': f'共 {num_chunks} 段，开始语音识别...'})}\n\n"
 
-            yield f"data: {json.dumps({'step': 'asr', 'message': f'语音识别中 (mp3 {mp3_size_mb:.1f}MB)...'})}\n\n"
-
+            # Transcribe each segment
+            transcripts = []
             try:
-                MAX_SIZE = 24 * 1024 * 1024  # 24MB limit
-                if mp3_size <= MAX_SIZE:
-                    # Single file upload
+                for i, chunk_path in enumerate(chunk_paths):
+                    chunk_size_kb = os.path.getsize(chunk_path) / 1024
+                    yield f"data: {json.dumps({'step': 'asr', 'message': f'转录中 ({i+1}/{num_chunks}) [{chunk_size_kb:.0f}KB]...'})}\n\n"
+
                     form = aiohttp.FormData()
                     form.add_field('model', 'glm-asr-2512')
                     form.add_field('stream', 'false')
-                    form.add_field('file', open(mp3_path, 'rb'), filename='audio.mp3', content_type='audio/mpeg')
+                    form.add_field('file', open(chunk_path, 'rb'), filename=f'seg{i}.mp3', content_type='audio/mpeg')
 
                     async with aiohttp.ClientSession() as session:
                         async with session.post(
                             asr_endpoint,
                             data=form,
                             headers={"Authorization": f"Bearer {api_key}"},
-                            timeout=aiohttp.ClientTimeout(total=300),
+                            timeout=aiohttp.ClientTimeout(total=120),
                         ) as resp:
                             resp_text = await resp.text()
-                            print(f"[ASR] status={resp.status}, response={resp_text[:500]}")
+                            print(f"[ASR seg {i}] status={resp.status}, response={resp_text[:300]}")
                             if resp.status != 200:
-                                yield f"data: {json.dumps({'step': 'error', 'message': f'ASR 失败: HTTP {resp.status} - {resp_text[:200]}'})}\n\n"
+                                yield f"data: {json.dumps({'step': 'error', 'message': f'ASR 第{i+1}段失败: {resp_text[:200]}'})}\n\n"
                                 return
-                            asr_result = json.loads(resp_text)
-                    transcript = asr_result.get('text', '')
-                else:
-                    # Read mp3 data and split by size
-                    with open(mp3_path, 'rb') as f:
-                        mp3_data = f.read()
-                    num_chunks = (len(mp3_data) + MAX_SIZE - 1) // MAX_SIZE
-                    yield f"data: {json.dumps({'step': 'asr', 'message': f'音频较大 ({mp3_size_mb:.1f}MB)，分 {num_chunks} 段转录...'})}\n\n"
-                    transcripts = []
-                    for i in range(num_chunks):
-                        chunk_data = mp3_data[i * MAX_SIZE : (i + 1) * MAX_SIZE]
-                        chunk_path = mp3_path + f".chunk{i}"
-                        with open(chunk_path, 'wb') as cf:
-                            cf.write(chunk_data)
-                        try:
-                            yield f"data: {json.dumps({'step': 'asr', 'message': f'转录中 ({i+1}/{num_chunks})...'})}\n\n"
-                            form = aiohttp.FormData()
-                            form.add_field('model', 'glm-asr-2512')
-                            form.add_field('stream', 'false')
-                            form.add_field('file', open(chunk_path, 'rb'), filename=f'audio_{i}.mp3', content_type='audio/mpeg')
-
-                            async with aiohttp.ClientSession() as session:
-                                async with session.post(
-                                    asr_endpoint,
-                                    data=form,
-                                    headers={"Authorization": f"Bearer {api_key}"},
-                                    timeout=aiohttp.ClientTimeout(total=300),
-                                ) as resp:
-                                    resp_text = await resp.text()
-                                    print(f"[ASR chunk {i}] status={resp.status}, response={resp_text[:300]}")
-                                    if resp.status != 200:
-                                        yield f"data: {json.dumps({'step': 'error', 'message': f'ASR 分片{i+1}失败: {resp_text[:200]}'})}\n\n"
-                                        return
-                                    chunk_result = json.loads(resp_text)
-                                    transcripts.append(chunk_result.get('text', ''))
-                        finally:
-                            if os.path.exists(chunk_path):
-                                os.unlink(chunk_path)
-                    transcript = ' '.join(t for t in transcripts if t)
+                            chunk_result = json.loads(resp_text)
+                            text = chunk_result.get('text', '')
+                            if text:
+                                transcripts.append(text)
             finally:
-                if os.path.exists(mp3_path):
-                    os.unlink(mp3_path)
+                for p in chunk_paths:
+                    if os.path.exists(p):
+                        os.unlink(p)
 
+            transcript = ' '.join(transcripts)
             if not transcript:
                 yield f"data: {json.dumps({'step': 'error', 'message': 'ASR 返回空文本'})}\n\n"
                 return
