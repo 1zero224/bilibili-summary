@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bilibili 视频总结器</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 
 <body>
@@ -14,8 +15,10 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="header-row">
-                    <h1><span class="icon">📺</span> BiliSummary</h1>
-                    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换主题">🌙</button>
+                    <h1><span class="icon"><i data-lucide="tv" class="lucide-icon"></i></span> BiliSummary</h1>
+                    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换主题">
+                        <i data-lucide="moon" class="lucide-icon" id="themeIcon"></i>
+                    </button>
                 </div>
                 <div class="subtitle">Bilibili 视频总结器</div>
             </div>
@@ -24,15 +27,16 @@
                 <div class="nav-section">
                     <div class="nav-section-title">总结</div>
                     <div class="nav-item active" data-page="url-page">
-                        <span class="icon">🔗</span> URL 模式
+                        <span class="icon"><i data-lucide="link" class="lucide-icon"></i></span> URL 模式
                     </div>
                     <div class="nav-item" data-page="user-page">
-                        <span class="icon">👤</span> UP 主模式
+                        <span class="icon"><i data-lucide="user" class="lucide-icon"></i></span> UP 主模式
                     </div>
                 </div>
                 <!-- Favorites — dynamically populated -->
                 <div class="nav-section">
-                    <div class="nav-section-title">⭐ 收藏夹</div>
+                    <div class="nav-section-title"><i data-lucide="star" class="lucide-icon"
+                            style="width:12px;height:12px;vertical-align:-1px;margin-right:2px;"></i> 收藏夹</div>
                     <div id="sidebarFavorites"></div>
                 </div>
                 <!-- Browse — dynamically populated -->
@@ -43,13 +47,15 @@
             </nav>
             <div class="sidebar-footer">
                 <div class="nav-item" data-page="settings-page" style="margin-bottom:8px;">
-                    <span class="icon">⚙️</span> 设置
+                    <span class="icon"><i data-lucide="settings" class="lucide-icon"></i></span> 设置
                 </div>
                 <div class="status-row">
                     <span class="status-dot" id="statusDot"></span>
                     <span class="status-text" id="statusText">检查中...</span>
                 </div>
-                <button class="btn-footer" id="loginBtn" onclick="startLogin()" style="display:none;">🔑 登录</button>
+                <button class="btn-footer" id="loginBtn" onclick="startLogin()" style="display:none;">
+                    <i data-lucide="key-round" class="lucide-icon" style="width:14px;height:14px;"></i> 登录
+                </button>
                 <button class="btn-footer btn-footer-danger" id="logoutBtn" onclick="doLogout()"
                     style="display:none;">退出登录</button>
             </div>
@@ -60,7 +66,7 @@
             <!-- URL Page -->
             <div class="page active" id="url-page">
                 <div class="main-header">
-                    <h2>🔗 URL 模式</h2>
+                    <h2><i data-lucide="link" class="lucide-icon"></i> URL 模式</h2>
                     <p>粘贴 Bilibili 视频链接，一行一个</p>
                 </div>
                 <div class="main-body">
@@ -80,11 +86,14 @@
                                 <input class="input" id="urlConcurrency" type="number" value="12">
                             </div>
                         </div>
-                        <button class="btn btn-primary" id="urlSubmit" onclick="submitURL()">🚀 开始总结</button>
+                        <button class="btn btn-primary" id="urlSubmit" onclick="submitURL()">
+                            <i data-lucide="play" class="lucide-icon" style="width:14px;height:14px;"></i> 开始总结
+                        </button>
                     </div>
                     <div class="progress-area" id="urlProgress">
                         <div class="card">
-                            <div class="card-title">📊 进度</div>
+                            <div class="card-title"><i data-lucide="bar-chart-3" class="lucide-icon"
+                                    style="width:15px;height:15px;"></i> 进度</div>
                             <div class="progress-bar-container">
                                 <div class="progress-bar" id="urlProgressBar"></div>
                             </div>
@@ -99,7 +108,7 @@
             <!-- User Page -->
             <div class="page" id="user-page">
                 <div class="main-header">
-                    <h2>👤 UP 主模式</h2>
+                    <h2><i data-lucide="user" class="lucide-icon"></i> UP 主模式</h2>
                     <p>输入 UP 主的名字或 UID，批量总结视频</p>
                 </div>
                 <div class="main-body">
@@ -122,11 +131,14 @@
                                 <input class="input" id="userConcurrency" type="number" value="12">
                             </div>
                         </div>
-                        <button class="btn btn-primary" id="userSubmit" onclick="submitUser()">🚀 开始总结</button>
+                        <button class="btn btn-primary" id="userSubmit" onclick="submitUser()">
+                            <i data-lucide="play" class="lucide-icon" style="width:14px;height:14px;"></i> 开始总结
+                        </button>
                     </div>
                     <div class="progress-area" id="userProgress">
                         <div class="card">
-                            <div class="card-title">📊 进度</div>
+                            <div class="card-title"><i data-lucide="bar-chart-3" class="lucide-icon"
+                                    style="width:15px;height:15px;"></i> 进度</div>
                             <div class="progress-bar-container">
                                 <div class="progress-bar" id="userProgressBar"></div>
                             </div>
@@ -141,7 +153,7 @@
             <!-- Favorites Browse Page -->
             <div class="page" id="fav-page">
                 <div class="main-header">
-                    <h2 id="favBrowseTitle">⭐ 收藏夹</h2>
+                    <h2 id="favBrowseTitle"><i data-lucide="star" class="lucide-icon"></i> 收藏夹</h2>
                     <p id="favBrowseSubtitle">选择左侧收藏夹查看视频</p>
                 </div>
                 <div class="main-body">
@@ -165,7 +177,7 @@
             <!-- Browse Page -->
             <div class="page" id="browse-page">
                 <div class="main-header" id="browseHeader">
-                    <h2 id="browseTitle">📚 浏览总结</h2>
+                    <h2 id="browseTitle"><i data-lucide="book-open" class="lucide-icon"></i> 浏览总结</h2>
                     <p id="browseSubtitle">选择左侧分类查看</p>
                 </div>
                 <div class="main-body">
@@ -180,12 +192,13 @@
             <!-- Settings Page -->
             <div class="page" id="settings-page">
                 <div class="main-header">
-                    <h2>⚙️ 设置</h2>
+                    <h2><i data-lucide="settings" class="lucide-icon"></i> 设置</h2>
                     <p>API 配置与模型选择</p>
                 </div>
                 <div class="main-body">
                     <div class="card">
-                        <div class="card-title">🔑 API 配置</div>
+                        <div class="card-title"><i data-lucide="key-round" class="lucide-icon"
+                                style="width:15px;height:15px;"></i> API 配置</div>
                         <div class="form-group">
                             <label>API Base URL</label>
                             <input class="input" id="settingsBaseUrl"
@@ -197,18 +210,26 @@
                                 <input class="input" id="settingsToken" type="password" placeholder="输入 API Token"
                                     style="flex:1;">
                                 <button class="btn btn-secondary" onclick="toggleTokenVisibility()"
-                                    style="padding:6px 10px;font-size:12px;" id="toggleTokenBtn">👁</button>
+                                    style="padding:6px 10px;font-size:12px;" id="toggleTokenBtn">
+                                    <i data-lucide="eye" class="lucide-icon" style="width:14px;height:14px;"
+                                        id="tokenEyeIcon"></i>
+                                </button>
                             </div>
                         </div>
-                        <button class="btn btn-primary" onclick="saveSettings()" style="margin-top:8px;">💾
-                            保存配置</button>
+                        <button class="btn btn-primary" onclick="saveSettings()" style="margin-top:8px;">
+                            <i data-lucide="save" class="lucide-icon" style="width:14px;height:14px;"></i> 保存配置
+                        </button>
                         <div id="settingsSaveStatus" style="margin-top:8px;font-size:13px;"></div>
                     </div>
                     <div class="card" style="margin-top:16px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <div class="card-title" style="margin:0;">🤖 可用模型</div>
+                            <div class="card-title" style="margin:0;"><i data-lucide="cpu" class="lucide-icon"
+                                    style="width:15px;height:15px;"></i> 可用模型</div>
                             <button class="btn btn-secondary" onclick="loadModels()"
-                                style="padding:4px 12px;font-size:12px;">刷新列表</button>
+                                style="padding:4px 12px;font-size:12px;">
+                                <i data-lucide="refresh-cw" class="lucide-icon" style="width:12px;height:12px;"></i>
+                                刷新列表
+                            </button>
                         </div>
                         <div id="modelList" style="margin-top:12px;">
                             <p style="color:var(--text-muted);font-size:13px;">点击「刷新列表」获取可用模型</p>
@@ -223,7 +244,7 @@
     <div class="modal-overlay" id="loginModal">
         <div class="modal">
             <div class="modal-header">
-                <h3>📱 扫码登录 Bilibili</h3>
+                <h3><i data-lucide="smartphone" class="lucide-icon"></i> 扫码登录 Bilibili</h3>
                 <div class="modal-close" onclick="closeLoginModal()">✕</div>
             </div>
             <div class="modal-body">
@@ -236,6 +257,10 @@
     </div>
 
     <script src="/static/app.js"></script>
+    <script>
+        // Initialize Lucide icons after DOM & app.js loaded
+        lucide.createIcons();
+    </script>
 </body>
 
 </html>

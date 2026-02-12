@@ -13,7 +13,10 @@ function initTheme() {
 function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     const btn = document.getElementById('themeToggle');
-    if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
+    if (btn) {
+        btn.innerHTML = `<i data-lucide="${theme === 'dark' ? 'moon' : 'sun'}" class="lucide-icon"></i>`;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [btn] });
+    }
 }
 
 function toggleTheme() {
@@ -111,7 +114,7 @@ function startLogin() {
 
     loginEventSource.addEventListener('done', (e) => {
         const d = JSON.parse(e.data);
-        qrStatus.textContent = '✅ ' + d.message;
+        qrStatus.textContent = '✓ ' + d.message;
         qrStatus.className = 'qr-status success';
         loginEventSource.close();
         loginEventSource = null;
@@ -133,9 +136,9 @@ function startLogin() {
     loginEventSource.addEventListener('error', (e) => {
         try {
             const d = JSON.parse(e.data);
-            qrStatus.textContent = '❌ ' + d.message;
+            qrStatus.textContent = '✗ ' + d.message;
         } catch {
-            qrStatus.textContent = '❌ 连接失败';
+            qrStatus.textContent = '✗ 连接失败';
         }
         qrStatus.className = 'qr-status error';
         if (loginEventSource) { loginEventSource.close(); loginEventSource = null; }
@@ -245,10 +248,11 @@ function showCategory(type, navEl) {
     list.style.display = 'block';
     list.innerHTML = cat.items.map(item => `
         <div class="summary-item" onclick="openSummary('${encodePath(item.path)}')">
-            <span class="icon">${item.no_subtitle ? '⚠️' : '📄'}</span>
+            <span class="icon"><i data-lucide="${item.no_subtitle ? 'alert-triangle' : 'file-text'}" class="lucide-icon"></i></span>
             <span class="title">${escapeHtml(item.name)}</span>
         </div>
     `).join('');
+    lucide.createIcons({ nodes: [list] });
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +274,8 @@ function showUserVideos(uid, navEl) {
     document.getElementById('browse-page').classList.add('active');
 
     // Update header
-    document.getElementById('browseTitle').textContent = `👤 ${group.display_name}`;
+    document.getElementById('browseTitle').innerHTML = `<i data-lucide="user" class="lucide-icon"></i> ${escapeHtml(group.display_name)}`;
+    lucide.createIcons({ nodes: [document.getElementById('browseTitle')] });
     document.getElementById('browseSubtitle').textContent = `UID: ${group.uid} · ${group.count} 篇总结`;
 
     // Render item list
@@ -280,10 +285,11 @@ function showUserVideos(uid, navEl) {
     list.style.display = 'block';
     list.innerHTML = group.items.map(item => `
         <div class="summary-item" onclick="openSummary('${encodePath(item.path)}')">
-            <span class="icon">${item.no_subtitle ? '⚠️' : '📄'}</span>
+            <span class="icon"><i data-lucide="${item.no_subtitle ? 'alert-triangle' : 'file-text'}" class="lucide-icon"></i></span>
             <span class="title">${escapeHtml(item.name)}</span>
         </div>
     `).join('');
+    lucide.createIcons({ nodes: [list] });
 }
 
 // ---------------------------------------------------------------------------
@@ -385,39 +391,40 @@ function listenProgress(taskId, prefix) {
         switch (eventType) {
             case 'start':
                 total = d.total;
-                addLog(logEl, `🚀 开始处理 ${d.total} 个视频 (并发: ${d.concurrency}, 模型: ${d.model})`, 'info');
+                addLog(logEl, `▶ 开始处理 ${d.total} 个视频 (并发: ${d.concurrency}, 模型: ${d.model})`, 'info');
                 break;
             case 'info':
-                addLog(logEl, `ℹ️  ${d.message}`, 'info');
+                addLog(logEl, `ℹ ${d.message}`, 'info');
                 break;
             case 'processing':
-                addLog(logEl, `⏳ ${d.title} — ${d.step}`, '');
+                addLog(logEl, `◌ ${d.title} — ${d.step}`, '');
                 break;
             case 'skip':
                 completed++;
                 updateProgress(progressBar, statsEl, completed, total);
-                addLog(logEl, `⏭️  已存在，跳过: ${d.title}`, 'skip');
+                addLog(logEl, `→ 已存在，跳过: ${d.title}`, 'skip');
                 if (d.path) completedPaths.push({ title: d.title, path: d.path, status: 'skipped' });
                 break;
             case 'completed':
                 completed++;
                 updateProgress(progressBar, statsEl, completed, total);
                 if (d.status === 'no_subtitle') {
-                    addLog(logEl, `⚠️  无字幕: ${d.title}`, 'warning');
+                    addLog(logEl, `△ 无字幕: ${d.title}`, 'warning');
                 } else {
-                    addLog(logEl, `✅ ${d.title} (${d.duration_sec}s)`, 'success');
+                    addLog(logEl, `✓ ${d.title} (${d.duration_sec}s)`, 'success');
                 }
                 if (d.path) completedPaths.push({ title: d.title, path: d.path, status: d.status, duration: d.duration_sec });
                 break;
             case 'error':
                 completed++;
                 updateProgress(progressBar, statsEl, completed, total);
-                addLog(logEl, `❌ ${d.title || ''}: ${d.message}`, 'error');
+                addLog(logEl, `✗ ${d.title || ''}: ${d.message}`, 'error');
                 break;
             case 'done':
                 isDone = true;
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '🚀 开始总结';
+                submitBtn.innerHTML = '<i data-lucide="play" class="lucide-icon" style="width:14px;height:14px;"></i> 开始总结';
+                lucide.createIcons({ nodes: [submitBtn] });
                 addLog(logEl, `✨ 完成! 成功: ${d.success} | 跳过: ${d.skipped} | 无字幕: ${d.no_subtitle} | 失败: ${d.errors}`, 'info');
                 progressBar.style.width = '100%';
                 showInlineResults(resultsArea, completedPaths);
@@ -476,15 +483,16 @@ function listenProgress(taskId, prefix) {
         // Auto-reconnect if not done
         if (!isDone && retryCount < MAX_RETRIES) {
             retryCount++;
-            addLog(logEl, `🔄 重连中... (${retryCount}/${MAX_RETRIES})`, 'warning');
+            addLog(logEl, `↻ 重连中... (${retryCount}/${MAX_RETRIES})`, 'warning');
             await new Promise(r => setTimeout(r, 2000));
             return connectSSE();
         }
 
         if (!isDone) {
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '🚀 开始总结';
-            addLog(logEl, '❌ 连接中断，可重新点击开始总结', 'error');
+            submitBtn.innerHTML = '<i data-lucide="play" class="lucide-icon" style="width:14px;height:14px;"></i> 开始总结';
+            lucide.createIcons({ nodes: [submitBtn] });
+            addLog(logEl, '✗ 连接中断，可重新点击开始总结', 'error');
         }
     }
 
@@ -497,7 +505,8 @@ function listenProgress(taskId, prefix) {
 async function showInlineResults(container, results) {
     if (!results.length) return;
 
-    container.innerHTML = `<div class="card"><div class="card-title">📄 生成的总结 (${results.length})</div><div id="resultsList"></div></div>`;
+    container.innerHTML = `<div class="card"><div class="card-title"><i data-lucide="file-text" class="lucide-icon" style="width:15px;height:15px;"></i> 生成的总结 (${results.length})</div><div id="resultsList"></div></div>`;
+    lucide.createIcons({ nodes: [container] });
     const list = container.querySelector('#resultsList');
 
     let index = 0;
@@ -505,9 +514,9 @@ async function showInlineResults(container, results) {
         const badgeClass = r.status === 'success' ? 'badge-success' :
             r.status === 'skipped' ? 'badge-skip' :
                 r.status === 'no_subtitle' ? 'badge-warning' : 'badge-error';
-        const badgeText = r.status === 'success' ? '✅ 完成' :
-            r.status === 'skipped' ? '⏭️ 已存在' :
-                r.status === 'no_subtitle' ? '⚠️ 无字幕' : '❌ 失败';
+        const badgeText = r.status === 'success' ? '✓ 完成' :
+            r.status === 'skipped' ? '→ 已存在' :
+                r.status === 'no_subtitle' ? '△ 无字幕' : '✗ 失败';
 
         const card = document.createElement('div');
         card.className = 'result-card';
@@ -728,7 +737,8 @@ function selectFavoriteFolder(favId, title) {
     showPage('fav-page');
 
     // Update header
-    document.getElementById('favBrowseTitle').textContent = `⭐ ${title}`;
+    document.getElementById('favBrowseTitle').innerHTML = `<i data-lucide="star" class="lucide-icon"></i> ${escapeHtml(title)}`;
+    lucide.createIcons({ nodes: [document.getElementById('favBrowseTitle')] });
     document.getElementById('favBrowseSubtitle').textContent = '加载中...';
 
     // Clear and load — reset display states
@@ -832,7 +842,7 @@ function formatPlayCount(count) {
 async function autoSummarizeVideos(bvids) {
     const progressEl = document.getElementById('favAutoProgress');
     progressEl.innerHTML = `
-        <div>🔄 正在自动总结 ${bvids.length} 个视频...</div>
+        <div>↻ 正在自动总结 ${bvids.length} 个视频...</div>
         <div class="mini-log" id="favMiniLog"></div>
     `;
 
@@ -919,7 +929,7 @@ function listenAutoSummarize(taskId, progressEl) {
                             }
                         }
                         if (miniLog) {
-                            const icon = d.status === 'no_subtitle' ? '⚠️' : '✅';
+                            const icon = d.status === 'no_subtitle' ? '△' : '✓';
                             miniLog.innerHTML += `<div class="log-line">${icon} ${escapeHtml(d.title)}</div>`;
                             miniLog.scrollTop = miniLog.scrollHeight;
                         }
@@ -1036,7 +1046,7 @@ function closeFavReading() {
 
 async function retrySummarize(bvid) {
     const readingContent = document.getElementById('favReadingContent');
-    readingContent.innerHTML = '<p style="color:var(--text-muted);">🔄 正在重新获取字幕并生成总结...</p>';
+    readingContent.innerHTML = '<p style="color:var(--text-muted);">↻ 正在重新获取字幕并生成总结...</p>';
 
     try {
         const res = await fetch(`/api/retry/${bvid}`, { method: 'POST' });
@@ -1047,7 +1057,7 @@ async function retrySummarize(bvid) {
         }
 
         const taskId = data.task_id;
-        readingContent.innerHTML = '<p style="color:var(--text-muted);">⏳ 正在获取字幕...</p>';
+        readingContent.innerHTML = '<p style="color:var(--text-muted);">◌ 正在获取字幕...</p>';
 
         // Listen to SSE for progress (server sends named events)
         const evtSrc = new EventSource(`/api/progress/${taskId}`);
@@ -1055,7 +1065,7 @@ async function retrySummarize(bvid) {
         evtSrc.addEventListener('processing', (e) => {
             try {
                 const d = JSON.parse(e.data);
-                readingContent.innerHTML = `<p style="color:var(--text-muted);">⏳ ${d.step || '处理中'}...</p>`;
+                readingContent.innerHTML = `<p style="color:var(--text-muted);">◌ ${d.step || '处理中'}...</p>`;
             } catch (_) { }
         });
 
@@ -1069,7 +1079,7 @@ async function retrySummarize(bvid) {
                         badge.className = 'summary-badge no_subtitle';
                         badge.textContent = '无字幕';
                     }
-                    readingContent.innerHTML = '<p style="color:var(--warning);">⚠️ 仍然无法获取字幕，可稍后再试</p>';
+                    readingContent.innerHTML = '<p style="color:var(--warning);">△ 仍然无法获取字幕，可稍后再试</p>';
                 } else {
                     if (badge) {
                         badge.className = 'summary-badge done';
@@ -1214,29 +1224,29 @@ async function saveSettings() {
         const data = await res.json();
         if (data.success) {
             statusEl.style.color = 'var(--success)';
-            statusEl.textContent = '✅ 已保存';
+            statusEl.textContent = '✓ 已保存';
             // Reload to show masked token
             setTimeout(() => loadSettings(), 500);
         } else {
             statusEl.style.color = 'var(--error)';
-            statusEl.textContent = '❌ 保存失败: ' + (data.error || '');
+            statusEl.textContent = '✗ 保存失败: ' + (data.error || '');
         }
     } catch (err) {
         statusEl.style.color = 'var(--error)';
-        statusEl.textContent = '❌ 保存失败: ' + err.message;
+        statusEl.textContent = '✗ 保存失败: ' + err.message;
     }
     setTimeout(() => { statusEl.textContent = ''; }, 3000);
 }
 
 async function loadModels() {
     const listEl = document.getElementById('modelList');
-    listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">⏳ 加载中...</p>';
+    listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">◌ 加载中...</p>';
 
     try {
         const res = await fetch('/api/models');
         if (!res.ok) {
             const err = await res.json();
-            listEl.innerHTML = `<p style="color:var(--error);font-size:13px;">❌ ${err.error || '加载失败'}</p>`;
+            listEl.innerHTML = `<p style="color:var(--error);font-size:13px;">✗ ${err.error || '加载失败'}</p>`;
             return;
         }
         const data = await res.json();
@@ -1258,7 +1268,7 @@ async function loadModels() {
         }).join('');
 
     } catch (err) {
-        listEl.innerHTML = `<p style="color:var(--error);font-size:13px;">❌ ${err.message}</p>`;
+        listEl.innerHTML = `<p style="color:var(--error);font-size:13px;">✗ ${err.message}</p>`;
     }
 }
 
@@ -1289,11 +1299,12 @@ function toggleTokenVisibility() {
     const btn = document.getElementById('toggleTokenBtn');
     if (input.type === 'password') {
         input.type = 'text';
-        btn.textContent = '🙈';
+        btn.innerHTML = '<i data-lucide="eye-off" class="lucide-icon" style="width:14px;height:14px;"></i>';
     } else {
         input.type = 'password';
-        btn.textContent = '👁';
+        btn.innerHTML = '<i data-lucide="eye" class="lucide-icon" style="width:14px;height:14px;"></i>';
     }
+    lucide.createIcons({ nodes: [btn] });
 }
 
 // Load settings when navigating to settings page

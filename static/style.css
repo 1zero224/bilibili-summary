@@ -102,6 +102,16 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* ---- Lucide Icon Base ---- */
+.lucide-icon {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.75;
+    vertical-align: -3px;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
 /* ---- Ambient background glow ---- */
 body::before {
     content: '';
@@ -129,11 +139,11 @@ body::before {
 }
 
 .theme-toggle {
-    width: 32px;
-    height: 32px;
-    border: 1px solid var(--border);
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border-hover);
     border-radius: var(--radius-xs);
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.06);
     cursor: pointer;
     font-size: 16px;
     display: flex;
@@ -141,20 +151,31 @@ body::before {
     justify-content: center;
     transition: all 0.25s ease;
     -webkit-app-region: no-drag;
+    color: var(--text-secondary);
+}
+
+.theme-toggle .lucide-icon {
+    width: 16px;
+    height: 16px;
 }
 
 .theme-toggle:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: var(--border-hover);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--accent);
+    color: var(--accent);
     transform: rotate(15deg);
+    box-shadow: 0 0 12px var(--accent-glow);
 }
 
 [data-theme="light"] .theme-toggle {
-    background: rgba(0, 0, 0, 0.04);
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-secondary);
 }
 
 [data-theme="light"] .theme-toggle:hover {
-    background: rgba(0, 0, 0, 0.08);
+    background: rgba(0, 0, 0, 0.1);
+    color: var(--accent);
+    border-color: var(--accent);
 }
 
 /* ===================== LAYOUT ===================== */
