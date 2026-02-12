@@ -353,11 +353,33 @@ async def get_user_videos(uid: int, count: int, credential: Credential = None) -
     except Exception as e:
         print(f"⚠️ 无法获取用户信息: {e}")
     
-    # 获取视频列表
-    videos_data = await u.get_videos(ps=count, pn=1)
-    video_list = videos_data.get('list', {}).get('vlist', [])
-    
-    return [v.get('bvid') for v in video_list if v.get('bvid')]
+    # 获取视频列表 (B站 API ps 最大 50，需要分页)
+    bvids = []
+    page = 1
+    per_page = min(count, 50)  # ps 最大 50
+
+    while len(bvids) < count:
+        try:
+            videos_data = await u.get_videos(ps=per_page, pn=page)
+        except Exception as e:
+            print(f"⚠️ 获取视频列表失败 (page={page}): {e}")
+            break
+
+        video_list = videos_data.get('list', {}).get('vlist', [])
+        if not video_list:
+            break
+
+        for v in video_list:
+            if v.get('bvid'):
+                bvids.append(v['bvid'])
+                if len(bvids) >= count:
+                    break
+
+        page += 1
+        if page > 20:  # 安全上限
+            break
+
+    return bvids
 
 
 async def get_favorite_videos(count: int, credential: Credential) -> list:
