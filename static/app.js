@@ -203,10 +203,10 @@ async function loadSidebarBrowse() {
                 // Standalone / Favorites: expandable parent, clicking shows items
                 html += `
                     <div class="nav-parent" onclick="toggleParent(this); showCategory('${cat.type}', this)" data-type="${cat.type}">
-                        <span class="icon">${cat.icon}</span>
+                        <span class="icon"><i data-lucide="${cat.icon}" class="lucide-icon"></i></span>
                         <span class="label">${cat.label}</span>
                         <span class="count">${cat.count}</span>
-                        <span class="chevron">▶</span>
+                        <span class="chevron"><i data-lucide="chevron-right" class="lucide-icon"></i></span>
                     </div>
                     <div class="nav-children"></div>`;
             }
