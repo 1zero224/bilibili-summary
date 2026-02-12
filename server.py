@@ -34,9 +34,12 @@ import base64
 import aiohttp
 
 # ---------------------------------------------------------------------------
-# Global state
+# Path resolution (supports PyInstaller bundle)
 # ---------------------------------------------------------------------------
-load_dotenv('.env.local')
+BUNDLE_DIR = Path(os.environ.get('BILISUMMARY_BUNDLE_DIR', os.path.dirname(os.path.abspath(__file__))))
+DATA_DIR = Path(os.environ.get('BILISUMMARY_DATA_DIR', os.path.dirname(os.path.abspath(__file__))))
+
+load_dotenv(str(DATA_DIR / '.env.local'))
 
 
 credential: Optional[Credential] = None
@@ -73,7 +76,7 @@ async def lifespan(app: FastAPI):
 # FastAPI App
 # ---------------------------------------------------------------------------
 app = FastAPI(title="Bilibili 视频总结器", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(BUNDLE_DIR / "static")), name="static")
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "GLM-4-FlashX-250414")
 
@@ -170,7 +173,7 @@ MAX_NOSUB_RETRIES = 3  # Max times to retry a no_subtitle video
 
 
 def _retries_file(output_subdir: str) -> Path:
-    return Path("summary") / output_subdir / "no_subtitle" / ".retries.json"
+    return DATA_DIR / "summary" / output_subdir / "no_subtitle" / ".retries.json"
 
 
 def get_retry_count(output_subdir: str, safe_title: str) -> int:
@@ -231,8 +234,8 @@ async def process_single_video(url: str, model: str, output_subdir: str, task_id
 
         # Check existing (both normal and no_subtitle dirs)
         safe_title = sanitize_filename(title)
-        normal_path = Path("summary") / output_subdir / f"{safe_title}.md"
-        nosub_path = Path("summary") / output_subdir / "no_subtitle" / f"{safe_title}.md"
+        normal_path = DATA_DIR / "summary" / output_subdir / f"{safe_title}.md"
+        nosub_path = DATA_DIR / "summary" / output_subdir / "no_subtitle" / f"{safe_title}.md"
 
         if normal_path.exists():
             await send_progress(task_id, "skip", {
@@ -331,7 +334,7 @@ async def run_batch(bvids: list[str], model: str, concurrency: int, output_subdi
 
 def save_user_meta(uid: int, name: str):
     """Save .meta.json in user summary directory for display name resolution."""
-    user_dir = Path("summary") / "users" / str(uid)
+    user_dir = DATA_DIR / "summary" / "users" / str(uid)
     user_dir.mkdir(parents=True, exist_ok=True)
     meta_file = user_dir / ".meta.json"
     meta_file.write_text(json.dumps({"uid": uid, "name": name}, ensure_ascii=False), encoding="utf-8")
@@ -342,7 +345,7 @@ def save_user_meta(uid: int, name: str):
 # ---------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return (Path("static") / "index.html").read_text(encoding="utf-8")
+    return (BUNDLE_DIR / "static" / "index.html").read_text(encoding="utf-8")
 
 
 @app.get("/api/status")
@@ -353,7 +356,7 @@ async def get_status():
 @app.get("/api/summaries")
 async def list_summaries():
     """List all generated summaries, structured by category."""
-    summary_root = Path("summary")
+    summary_root = DATA_DIR / "summary"
     if not summary_root.exists():
         return {"categories": []}
 
@@ -413,7 +416,7 @@ async def list_summaries():
 
 @app.get("/api/summary/{path:path}")
 async def read_summary(path: str):
-    filepath = Path("summary") / path
+    filepath = DATA_DIR / "summary" / path
     if not filepath.exists():
         return JSONResponse(status_code=404, content={"error": "Not found"})
     return {"content": filepath.read_text(encoding="utf-8"), "path": path}
@@ -538,8 +541,8 @@ async def list_favorite_videos(fav_id: int, page: int = 1):
             safe_title = sanitize_filename(title)
 
             # Check if summary exists
-            normal_path = Path("summary") / "favorites" / f"{safe_title}.md"
-            nosub_path = Path("summary") / "favorites" / "no_subtitle" / f"{safe_title}.md"
+            normal_path = DATA_DIR / "summary" / "favorites" / f"{safe_title}.md"
+            nosub_path = DATA_DIR / "summary" / "favorites" / "no_subtitle" / f"{safe_title}.md"
             has_summary = normal_path.exists()
             has_nosub = nosub_path.exists()
             summary_path = None
@@ -619,7 +622,7 @@ async def retry_summarize(bvid: str, output_subdir: str = "favorites"):
         safe_title = sanitize_filename(title)
 
         # Delete existing no_subtitle file if present
-        nosub_path = Path("summary") / output_subdir / "no_subtitle" / f"{safe_title}.md"
+        nosub_path = DATA_DIR / "summary" / output_subdir / "no_subtitle" / f"{safe_title}.md"
         if nosub_path.exists():
             nosub_path.unlink()
 
@@ -665,7 +668,7 @@ class SaveSettingsRequest(BaseModel):
 async def save_settings(req: SaveSettingsRequest):
     """Save API settings to .env.local and hot-reload ai_client."""
     global DEFAULT_MODEL
-    env_path = '.env.local'
+    env_path = str(DATA_DIR / '.env.local')
     changed = []
 
     if req.base_url:
@@ -766,7 +769,7 @@ async def qr_login_stream():
             if state == QrCodeLoginEvents.DONE:
                 cred = login.get_credential()
                 # Save to .env.local
-                env_path = str(Path('.env.local'))
+                env_path = str(DATA_DIR / '.env.local')
                 set_key(env_path, 'BILIBILI_SESSION_TOKEN', cred.sessdata)
                 set_key(env_path, 'BILIBILI_BILI_JCT', cred.bili_jct)
                 if cred.ac_time_value:
@@ -799,7 +802,7 @@ async def logout():
     """Clear credential and remove from .env.local."""
     global credential
     credential = None
-    env_path = Path('.env.local')
+    env_path = DATA_DIR / '.env.local'
     if env_path.exists():
         set_key(str(env_path), 'BILIBILI_SESSION_TOKEN', '')
         set_key(str(env_path), 'BILIBILI_BILI_JCT', '')

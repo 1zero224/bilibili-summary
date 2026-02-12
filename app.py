@@ -4,10 +4,42 @@ BiliSummary macOS App 入口
 pywebview 原生窗口 + FastAPI 后端
 """
 
+import sys
+import os
 import threading
 import webbrowser
 import webview
 import uvicorn
+
+# ---------------------------------------------------------------------------
+# Path resolution for PyInstaller bundle vs development
+# ---------------------------------------------------------------------------
+def get_bundle_dir():
+    """Directory containing bundled resources (static/, config.toml)."""
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_data_dir():
+    """Directory for user data (summary/, ass/, .env.local).
+    In bundled mode: ~/Library/Application Support/BiliSummary
+    In dev mode: project root (same as bundle_dir)
+    """
+    if getattr(sys, 'frozen', False):
+        data_dir = os.path.join(
+            os.path.expanduser('~'), 'Library', 'Application Support', 'BiliSummary'
+        )
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+# Set paths as env vars so server.py and summarize.py can access them
+os.environ['BILISUMMARY_BUNDLE_DIR'] = get_bundle_dir()
+os.environ['BILISUMMARY_DATA_DIR'] = get_data_dir()
+
+# Now import server (after env vars are set)
 from server import app as fastapi_app
 
 

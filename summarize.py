@@ -24,6 +24,9 @@ from bilibili_api.utils.network import Credential
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
 import anthropic
 
+# Path resolution (supports PyInstaller bundle)
+DATA_DIR = Path(os.environ.get('BILISUMMARY_DATA_DIR', os.path.dirname(os.path.abspath(__file__))))
+
 
 def extract_bvid(url: str) -> str:
     """从 Bilibili URL 中提取 BV 号"""
@@ -116,7 +119,7 @@ def save_ass(title: str, subtitles: list, output_subdir: str = "standalone"):
         return
     
     # 创建 ass 目录
-    ass_dir = Path("ass") / output_subdir
+    ass_dir = DATA_DIR / "ass" / output_subdir
     ass_dir.mkdir(parents=True, exist_ok=True)
     
     # 生成安全的文件名
@@ -221,7 +224,7 @@ async def summarize_with_claude(subtitle: str, title: str, client: anthropic.Asy
 def save_summary(title: str, bvid: str, url: str, duration: int, summary: str, output_subdir: str = "standalone", author_name: str = "", author_uid: int = 0):
     """保存总结到 markdown 文件"""
     # 创建 summary 目录
-    summary_dir = Path("summary") / output_subdir
+    summary_dir = DATA_DIR / "summary" / output_subdir
     summary_dir.mkdir(parents=True, exist_ok=True)
     
     # 生成安全的文件名
@@ -278,7 +281,7 @@ async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: 
         
         # 检查总结文件是否已存在 (benchmark 模式不跳过)
         if not benchmark:
-            summary_dir = Path("summary") / output_subdir
+            summary_dir = DATA_DIR / "summary" / output_subdir
             safe_title = sanitize_filename(title)
             summary_path = summary_dir / f"{safe_title}.md"
             
@@ -476,7 +479,7 @@ async def qr_login():
             credential = login.get_credential()
             
             # 保存到 .env.local
-            env_path = Path('.env.local')
+            env_path = DATA_DIR / '.env.local'
             set_key(str(env_path), 'BILIBILI_SESSION_TOKEN', credential.sessdata)
             set_key(str(env_path), 'BILIBILI_BILI_JCT', credential.bili_jct)
             if credential.ac_time_value:
@@ -508,7 +511,7 @@ async def main():
     args = parser.parse_args()
     
     # 加载环境变量
-    load_dotenv('.env.local')
+    load_dotenv(str(DATA_DIR / '.env.local'))
     
     # 处理登录模式
     if args.login:
