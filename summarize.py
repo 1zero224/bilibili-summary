@@ -110,7 +110,7 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{secs:05.2f}"
 
 
-def save_ass(title: str, subtitles: list, output_subdir: str = "urls"):
+def save_ass(title: str, subtitles: list, output_subdir: str = "standalone"):
     """保存字幕为 ASS 文件"""
     if not subtitles:
         return
@@ -214,7 +214,7 @@ async def summarize_with_claude(subtitle: str, title: str, client: anthropic.Asy
     return "⚠️ 生成总结失败 (Unknown)", 0.0
 
 
-def save_summary(title: str, bvid: str, url: str, duration: int, summary: str, output_subdir: str = "urls"):
+def save_summary(title: str, bvid: str, url: str, duration: int, summary: str, output_subdir: str = "standalone"):
     """保存总结到 markdown 文件"""
     # 创建 summary 目录
     summary_dir = Path("summary") / output_subdir
@@ -247,7 +247,7 @@ def save_summary(title: str, bvid: str, url: str, duration: int, summary: str, o
     print(f"  ✅ 已保存: {filepath}")
 
 
-async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: Credential = None, output_subdir: str = "urls", model: str = None, benchmark: bool = False):
+async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: Credential = None, output_subdir: str = "standalone", model: str = None, benchmark: bool = False):
     """处理单个视频"""
     try:
         # 提取 BV 号
@@ -314,7 +314,7 @@ async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: 
         print(f"  ❌ 处理失败: {e}")
 
 
-async def process_by_bvid(bvid: str, client: anthropic.AsyncAnthropic, credential: Credential = None, output_subdir: str = "urls", model: str = None, benchmark: bool = False):
+async def process_by_bvid(bvid: str, client: anthropic.AsyncAnthropic, credential: Credential = None, output_subdir: str = "standalone", model: str = None, benchmark: bool = False):
     """通过 BV 号处理视频"""
     url = f"https://www.bilibili.com/video/{bvid}"
     await process_video(url, client, credential, output_subdir, model, benchmark)
@@ -499,7 +499,7 @@ async def main():
     concurrency = 1 if args.benchmark else args.concurrency  # Benchmark 模式下强制串行
     sem = asyncio.Semaphore(concurrency)
     
-    async def bounded_process_video(url, output_subdir="urls"):
+    async def bounded_process_video(url, output_subdir="standalone"):
         async with sem:
             await process_video(url, client, credential, output_subdir, model=args.model, benchmark=args.benchmark)
 
