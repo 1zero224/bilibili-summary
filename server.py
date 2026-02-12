@@ -759,10 +759,13 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                     out = pyav.open(seg_path, 'w', format='mp3')
                     out_stream = out.add_stream('mp3', rate=16000)
                     out_stream.bit_rate = 64000
+                    out_stream.layout = 'mono'
+                    resampler = pyav.AudioResampler(format='s16', layout='mono', rate=16000)
                     for fr in frames:
                         fr.pts = None
-                        for pkt in out_stream.encode(fr):
-                            out.mux(pkt)
+                        for resampled in resampler.resample(fr):
+                            for pkt in out_stream.encode(resampled):
+                                out.mux(pkt)
                     for pkt in out_stream.encode():
                         out.mux(pkt)
                     out.close()
