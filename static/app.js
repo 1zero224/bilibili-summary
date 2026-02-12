@@ -632,16 +632,76 @@ async function loadFavoriteFolders() {
             return;
         }
 
-        container.innerHTML = data.folders.map(f => `
-            <div class="fav-folder-item" data-fav-id="${f.id}" onclick="selectFavoriteFolder(${f.id}, '${escapeHtml(f.title)}')">
-                <span class="folder-name">${escapeHtml(f.title)}</span>
-                <span class="folder-count">${f.count}</span>
-            </div>
-        `).join('');
+        const folders = data.folders || [];
+        const defaultFolder = folders.find(f => f.is_default);
+        const otherFolders = folders.filter(f => !f.is_default);
+
+        let html = '';
+
+        // Default folder always visible
+        if (defaultFolder) {
+            html += `
+                <div class="fav-folder-item" data-fav-id="${defaultFolder.id}" data-fav-title="${escapeHtml(defaultFolder.title)}">
+                    <span class="folder-name">📁 ${escapeHtml(defaultFolder.title)}</span>
+                    <span class="folder-count">${defaultFolder.count}</span>
+                </div>`;
+        }
+
+        // Other folders in collapsible section
+        if (otherFolders.length > 0) {
+            html += `
+                <div class="fav-folder-toggle" onclick="toggleFavFolders()">
+                    <span class="toggle-arrow" id="favFoldArrow">▸</span>
+                    <span>其他收藏夹 (${otherFolders.length})</span>
+                </div>
+                <div class="fav-folder-list collapsed" id="favFolderList">
+                    ${otherFolders.map(f => `
+                        <div class="fav-folder-item" data-fav-id="${f.id}" data-fav-title="${escapeHtml(f.title)}">
+                            <span class="folder-name">📁 ${escapeHtml(f.title)}</span>
+                            <span class="folder-count">${f.count}</span>
+                        </div>
+                    `).join('')}
+                </div>`;
+        }
+
+        container.innerHTML = html;
+
+        // Event delegation for folder clicks
+        container.addEventListener('click', (e) => {
+            const item = e.target.closest('.fav-folder-item');
+            if (!item) return;
+            const favId = parseInt(item.dataset.favId);
+            const title = item.dataset.favTitle;
+            selectFavoriteFolder(favId, title);
+        });
+
     } catch (err) {
         container.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:var(--text-muted);">加载失败</div>';
     }
 }
+
+function toggleFavFolders() {
+    const list = document.getElementById('favFolderList');
+    const arrow = document.getElementById('favFoldArrow');
+    if (!list) return;
+    list.classList.toggle('collapsed');
+    arrow.textContent = list.classList.contains('collapsed') ? '▸' : '▾';
+}
+
+// Event delegation for video card clicks
+document.getElementById('favVideoGrid').addEventListener('click', (e) => {
+    const card = e.target.closest('.video-card');
+    if (!card) return;
+
+    const bvid = card.dataset.bvid;
+    const summaryPath = card.dataset.summaryPath;
+
+    if (summaryPath) {
+        showVideoSummary(bvid, decodeURIComponent(summaryPath));
+    } else {
+        openExternal(`https://www.bilibili.com/video/${bvid}`);
+    }
+});
 
 function selectFavoriteFolder(favId, title) {
     currentFavId = favId;
@@ -714,12 +774,11 @@ function renderVideoCard(v) {
         'none': '未总结',
     }[v.summary_status] || '未总结';
 
-    const onclick = v.has_summary
-        ? `showVideoSummary('${v.bvid}', '${escapeHtml(v.summary_path || '')}')`
-        : `openExternal('https://www.bilibili.com/video/${v.bvid}')`;
+    // Use data attributes instead of inline onclick to avoid escaping issues
+    const summaryAttr = v.summary_path ? `data-summary-path="${encodeURIComponent(v.summary_path)}"` : '';
 
     return `
-        <div class="video-card" id="card-${v.bvid}" data-bvid="${v.bvid}" onclick="${onclick}">
+        <div class="video-card" id="card-${v.bvid}" data-bvid="${v.bvid}" ${summaryAttr}>
             <div class="cover-wrapper">
                 <img src="${v.cover}" alt="" loading="lazy" referrerpolicy="no-referrer">
                 <span class="duration-badge">${durationStr}</span>
@@ -831,10 +890,10 @@ function listenAutoSummarize(taskId, progressEl) {
                             } else {
                                 badge.className = 'summary-badge done';
                                 badge.textContent = '已总结';
-                                // Make card clickable to read summary
+                                // Update card data attribute for event delegation
                                 const card = document.getElementById(`card-${d.bvid}`);
                                 if (card && d.path) {
-                                    card.setAttribute('onclick', `showVideoSummary('${d.bvid}', '${d.path}')`);
+                                    card.dataset.summaryPath = encodeURIComponent(d.path);
                                 }
                             }
                         }
