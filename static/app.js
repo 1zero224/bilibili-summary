@@ -185,10 +185,10 @@ async function loadSidebarBrowse() {
                 // UP 主: expandable parent → children are individual users
                 html += `
                     <div class="nav-parent" onclick="toggleParent(this)">
-                        <span class="icon">${cat.icon}</span>
+                        <span class="icon"><i data-lucide="${cat.icon}" class="lucide-icon"></i></span>
                         <span class="label">${cat.label}</span>
                         <span class="count">${cat.count}</span>
-                        <span class="chevron">▶</span>
+                        <span class="chevron"><i data-lucide="chevron-right" class="lucide-icon"></i></span>
                     </div>
                     <div class="nav-children">`;
                 for (const group of cat.groups) {
@@ -212,6 +212,7 @@ async function loadSidebarBrowse() {
             }
         }
         container.innerHTML = html;
+        lucide.createIcons({ nodes: [container] });
     } catch (err) {
         container.innerHTML = `<div class="nav-item" style="color:var(--error);cursor:default;font-size:12px;">加载失败</div>`;
     }
@@ -525,7 +526,7 @@ async function showInlineResults(container, results) {
             <div class="result-card-header" onclick="toggleResultCard(this)">
                 <span class="title">${escapeHtml(r.title)}</span>
                 <span class="badge ${badgeClass}">${badgeText}</span>
-                <span class="chevron">▶</span>
+                <span class="chevron"><i data-lucide="chevron-right" class="lucide-icon"></i></span>
             </div>
             <div class="result-card-body">
                 <div class="reading-content" style="padding-top:12px;">加载中...</div>
@@ -652,7 +653,7 @@ async function loadFavoriteFolders() {
         if (defaultFolder) {
             html += `
                 <div class="fav-folder-item" data-fav-id="${defaultFolder.id}" data-fav-title="${escapeHtml(defaultFolder.title)}">
-                    <span class="folder-name">📁 ${escapeHtml(defaultFolder.title)}</span>
+                    <span class="folder-name"><i data-lucide="folder" class="lucide-icon" style="width:14px;height:14px;"></i> ${escapeHtml(defaultFolder.title)}</span>
                     <span class="folder-count">${defaultFolder.count}</span>
                 </div>`;
         }
@@ -661,13 +662,13 @@ async function loadFavoriteFolders() {
         if (otherFolders.length > 0) {
             html += `
                 <div class="fav-folder-toggle" onclick="toggleFavFolders()">
-                    <span class="toggle-arrow" id="favFoldArrow">▸</span>
+                    <span class="toggle-arrow" id="favFoldArrow"><i data-lucide="chevron-right" class="lucide-icon" style="width:12px;height:12px;"></i></span>
                     <span>其他收藏夹 (${otherFolders.length})</span>
                 </div>
                 <div class="fav-folder-list collapsed" id="favFolderList">
                     ${otherFolders.map(f => `
                         <div class="fav-folder-item" data-fav-id="${f.id}" data-fav-title="${escapeHtml(f.title)}">
-                            <span class="folder-name">📁 ${escapeHtml(f.title)}</span>
+                            <span class="folder-name"><i data-lucide="folder" class="lucide-icon" style="width:14px;height:14px;"></i> ${escapeHtml(f.title)}</span>
                             <span class="folder-count">${f.count}</span>
                         </div>
                     `).join('')}
@@ -675,6 +676,7 @@ async function loadFavoriteFolders() {
         }
 
         container.innerHTML = html;
+        lucide.createIcons({ nodes: [container] });
 
         // Event delegation for folder clicks
         container.addEventListener('click', (e) => {
@@ -777,6 +779,7 @@ async function loadFavoriteVideos(favId, page, append) {
         } else {
             grid.innerHTML = html;
         }
+        lucide.createIcons({ nodes: [grid] });
 
         // Auto-summarize videos that don't have summaries
         const unsummarized = videos.filter(v => v.summary_status === 'none').map(v => v.bvid);
@@ -819,7 +822,7 @@ function renderVideoCard(v) {
                 <div class="card-title" title="${escapeHtml(v.title)}">${escapeHtml(v.title)}</div>
                 <div class="card-meta">
                     <span class="upper-name">${escapeHtml(v.upper)}</span>
-                    <span class="play-count">▶ ${playStr}</span>
+                    <span class="play-count"><i data-lucide="play" class="lucide-icon" style="width:10px;height:10px;"></i> ${playStr}</span>
                 </div>
             </div>
         </div>

@@ -367,7 +367,7 @@ async def list_summaries():
             rel = md.relative_to(summary_root)
             items.append({"name": md.stem, "path": str(rel), "no_subtitle": "no_subtitle" in str(rel)})
         if items:
-            categories.append({"type": "standalone", "label": "独立视频", "icon": "🔗", "count": len(items), "items": items})
+            categories.append({"type": "standalone", "label": "独立视频", "icon": "link", "count": len(items), "items": items})
 
     # 2) Favorites
     fav_dir = summary_root / "favorites"
@@ -377,7 +377,7 @@ async def list_summaries():
             rel = md.relative_to(summary_root)
             items.append({"name": md.stem, "path": str(rel), "no_subtitle": "no_subtitle" in str(rel)})
         if items:
-            categories.append({"type": "favorites", "label": "收藏夹", "icon": "⭐", "count": len(items), "items": items})
+            categories.append({"type": "favorites", "label": "收藏夹", "icon": "star", "count": len(items), "items": items})
 
     # 3) Users — each UID is a sub-group with display name
     users_dir = summary_root / "users"
@@ -406,7 +406,7 @@ async def list_summaries():
 
         if user_groups:
             total = sum(g["count"] for g in user_groups)
-            categories.append({"type": "users", "label": "UP 主", "icon": "👤", "count": total, "groups": user_groups})
+            categories.append({"type": "users", "label": "UP 主", "icon": "users", "count": total, "groups": user_groups})
 
     return {"categories": categories}
 

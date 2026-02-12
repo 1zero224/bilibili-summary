@@ -625,7 +625,6 @@ body::before {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: linear-gradient(180deg, rgba(14, 14, 22, 0.3) 0%, transparent 40%);
 }
 
 .main-header {
@@ -777,20 +776,20 @@ textarea {
 }
 
 .btn-primary {
-    background: var(--accent-gradient);
+    background: var(--accent);
     color: white;
-    box-shadow: 0 4px 16px rgba(251, 113, 133, 0.25);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 28px rgba(251, 113, 133, 0.35);
-    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    filter: brightness(1.08);
 }
 
 .btn-primary:active {
     transform: translateY(0);
-    box-shadow: 0 2px 8px rgba(251, 113, 133, 0.2);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .btn-primary:disabled {
@@ -820,11 +819,11 @@ textarea {
 
 .progress-bar {
     height: 100%;
-    background: var(--accent-gradient);
+    background: var(--accent);
     border-radius: 2px;
     width: 0%;
     transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 0 12px rgba(251, 113, 133, 0.3);
+    box-shadow: none;
 }
 
 .progress-stats {
@@ -1084,10 +1083,7 @@ textarea {
     font-weight: 600;
     margin-top: 28px;
     margin-bottom: 14px;
-    background: var(--accent-gradient);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: var(--text-primary);
 }
 
 .reading-content h3 {
