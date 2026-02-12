@@ -718,8 +718,8 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
             with open(m4s_path, 'wb') as f:
                 f.write(audio_data)
 
-            # Convert m4s to 25-second mp3 segments using PyAV (ASR limit: 30s per file)
-            SEGMENT_DURATION = 25  # seconds, stay under 30s limit
+            # Convert m4s to 29-second wav segments using PyAV (ASR limit: 30s per file)
+            SEGMENT_DURATION = 29  # seconds, stay under 30s limit
             yield f"data: {json.dumps({'step': 'asr', 'message': '切分音频并转换格式...'})}\n\n"
 
             chunk_paths = []
@@ -730,7 +730,7 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                 total_duration = float(audio_stream_info.duration * audio_stream_info.time_base) if audio_stream_info.duration else duration
                 num_segments = max(1, int(total_duration / SEGMENT_DURATION) + (1 if total_duration % SEGMENT_DURATION > 0.5 else 0))
 
-                print(f"[ASR] Audio duration: {total_duration:.1f}s, splitting into {num_segments} segments of {SEGMENT_DURATION}s")
+                print(f"[ASR] Audio duration: {total_duration:.1f}s, splitting into ~{num_segments} segments of {SEGMENT_DURATION}s")
 
                 # Decode all audio frames first
                 all_frames = []
@@ -744,10 +744,6 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
 
                 sample_rate = all_frames[0].sample_rate
                 samples_per_segment = SEGMENT_DURATION * sample_rate
-
-                # Calculate total samples
-                total_samples = sum(f.samples for f in all_frames)
-                num_segments = max(1, (total_samples + samples_per_segment - 1) // samples_per_segment)
 
                 # Split frames into segments by sample count
                 current_segment = 0
@@ -792,20 +788,22 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                     os.unlink(m4s_path)
 
             num_chunks = len(chunk_paths)
-            yield f"data: {json.dumps({'step': 'asr', 'message': f'共 {num_chunks} 段，开始语音识别...'})}\n\n"
+            total_dur_min = (num_chunks * SEGMENT_DURATION) / 60
+            yield f"data: {json.dumps({'step': 'asr', 'message': f'共 {num_chunks} 段 (~{total_dur_min:.0f}分钟)，5路并发识别中...'})}\n\n"
 
-            # Transcribe each segment
-            transcripts = []
-            try:
-                for i, chunk_path in enumerate(chunk_paths):
-                    chunk_size_kb = os.path.getsize(chunk_path) / 1024
-                    yield f"data: {json.dumps({'step': 'asr', 'message': f'转录中 ({i+1}/{num_chunks}) [{chunk_size_kb:.0f}KB]...'})}\n\n"
+            # Transcribe segments concurrently (5 at a time)
+            import asyncio
+            CONCURRENCY = 5
+            semaphore = asyncio.Semaphore(CONCURRENCY)
+            results = [None] * num_chunks  # preserve order
+            completed = [0]  # mutable counter
 
+            async def transcribe_one(idx, path):
+                async with semaphore:
                     form = aiohttp.FormData()
                     form.add_field('model', 'glm-asr-2512')
                     form.add_field('stream', 'false')
-                    form.add_field('file', open(chunk_path, 'rb'), filename=f'seg{i}.wav', content_type='audio/wav')
-
+                    form.add_field('file', open(path, 'rb'), filename=f'seg{idx}.wav', content_type='audio/wav')
                     async with aiohttp.ClientSession() as session:
                         async with session.post(
                             asr_endpoint,
@@ -814,20 +812,31 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                             timeout=aiohttp.ClientTimeout(total=120),
                         ) as resp:
                             resp_text = await resp.text()
-                            print(f"[ASR seg {i}] status={resp.status}, response={resp_text[:300]}")
+                            completed[0] += 1
                             if resp.status != 200:
-                                yield f"data: {json.dumps({'step': 'error', 'message': f'ASR 第{i+1}段失败: {resp_text[:200]}'})}\n\n"
-                                return
+                                print(f"[ASR seg {idx}] FAILED: {resp_text[:200]}")
+                                return  # skip failed segments
                             chunk_result = json.loads(resp_text)
                             text = chunk_result.get('text', '')
                             if text:
-                                transcripts.append(text)
+                                results[idx] = text
+                            print(f"[ASR seg {idx}] OK ({completed[0]}/{num_chunks})")
+
+            try:
+                tasks = [transcribe_one(i, p) for i, p in enumerate(chunk_paths)]
+                # Run in batches and yield progress
+                batch_size = CONCURRENCY
+                for batch_start in range(0, len(tasks), batch_size):
+                    batch = tasks[batch_start:batch_start + batch_size]
+                    await asyncio.gather(*batch)
+                    done_count = min(batch_start + batch_size, num_chunks)
+                    yield f"data: {json.dumps({'step': 'asr', 'message': f'转录进度: {done_count}/{num_chunks}'})}\n\n"
             finally:
                 for p in chunk_paths:
                     if os.path.exists(p):
                         os.unlink(p)
 
-            transcript = ' '.join(transcripts)
+            transcript = ' '.join(t for t in results if t)
             if not transcript:
                 yield f"data: {json.dumps({'step': 'error', 'message': 'ASR 返回空文本'})}\n\n"
                 return
