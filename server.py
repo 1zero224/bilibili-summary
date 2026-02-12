@@ -626,11 +626,7 @@ async def retry_summarize(bvid: str, output_subdir: str = "favorites"):
         task_id = f"retry-{bvid}-{int(time.time()*1000)}"
 
         async def _run():
-            client = anthropic.AsyncAnthropic(
-                base_url=os.getenv('ANTHROPIC_BASE_URL'),
-                api_key=os.getenv('ANTHROPIC_AUTH_TOKEN')
-            )
-            await process_single_video(bvid, client, credential, output_subdir, task_id)
+            await process_single_video(bvid, "GLM-4-FlashX-250414", output_subdir, task_id)
             await send_progress(task_id, "done", {"total": 1})
 
         asyncio.create_task(_run())
