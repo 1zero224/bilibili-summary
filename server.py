@@ -755,11 +755,9 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                 segment_frames = []
 
                 def write_segment(frames, seg_idx):
-                    seg_path = tempfile.mktemp(suffix=f"_seg{seg_idx}.mp3")
-                    out = pyav.open(seg_path, 'w', format='mp3')
-                    out_stream = out.add_stream('mp3', rate=16000)
-                    out_stream.bit_rate = 64000
-                    out_stream.layout = 'mono'
+                    seg_path = tempfile.mktemp(suffix=f"_seg{seg_idx}.wav")
+                    out = pyav.open(seg_path, 'w', format='wav')
+                    out_stream = out.add_stream('pcm_s16le', rate=16000, layout='mono')
                     resampler = pyav.AudioResampler(format='s16', layout='mono', rate=16000)
                     for fr in frames:
                         fr.pts = None
@@ -806,7 +804,7 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
                     form = aiohttp.FormData()
                     form.add_field('model', 'glm-asr-2512')
                     form.add_field('stream', 'false')
-                    form.add_field('file', open(chunk_path, 'rb'), filename=f'seg{i}.mp3', content_type='audio/mpeg')
+                    form.add_field('file', open(chunk_path, 'rb'), filename=f'seg{i}.wav', content_type='audio/wav')
 
                     async with aiohttp.ClientSession() as session:
                         async with session.post(
