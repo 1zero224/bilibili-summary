@@ -125,6 +125,52 @@ async def progress_generator(task_id: str):
 
 
 # ---------------------------------------------------------------------------
+# No-subtitle retry logic
+# ---------------------------------------------------------------------------
+MAX_NOSUB_RETRIES = 3  # Max times to retry a no_subtitle video
+
+
+def _retries_file(output_subdir: str) -> Path:
+    return Path("summary") / output_subdir / "no_subtitle" / ".retries.json"
+
+
+def get_retry_count(output_subdir: str, safe_title: str) -> int:
+    path = _retries_file(output_subdir)
+    if not path.exists():
+        return 0
+    try:
+        data = json.loads(path.read_text())
+        return data.get(safe_title, 0)
+    except Exception:
+        return 0
+
+
+def increment_retry_count(output_subdir: str, safe_title: str):
+    path = _retries_file(output_subdir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+        except Exception:
+            data = {}
+    data[safe_title] = data.get(safe_title, 0) + 1
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def clear_retry_count(output_subdir: str, safe_title: str):
+    path = _retries_file(output_subdir)
+    if not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text())
+        data.pop(safe_title, None)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Core processing (with progress callbacks)
 # ---------------------------------------------------------------------------
 async def process_single_video(url: str, model: str, output_subdir: str, task_id: str):
@@ -152,12 +198,21 @@ async def process_single_video(url: str, model: str, output_subdir: str, task_id
                 "path": f"{output_subdir}/{safe_title}.md"
             })
             return {"title": title, "status": "skipped"}
+
+        # For no_subtitle files: retry if under the limit
         if nosub_path.exists():
-            await send_progress(task_id, "skip", {
-                "title": title, "bvid": bvid,
-                "path": f"{output_subdir}/no_subtitle/{safe_title}.md"
-            })
-            return {"title": title, "status": "skipped"}
+            retries = get_retry_count(output_subdir, safe_title)
+            if retries >= MAX_NOSUB_RETRIES:
+                await send_progress(task_id, "skip", {
+                    "title": title, "bvid": bvid,
+                    "path": f"{output_subdir}/no_subtitle/{safe_title}.md"
+                })
+                return {"title": title, "status": "skipped"}
+            else:
+                await send_progress(task_id, "processing", {
+                    "title": title, "bvid": bvid,
+                    "step": f"重试获取字幕 ({retries+1}/{MAX_NOSUB_RETRIES})"
+                })
 
         await send_progress(task_id, "processing", {"title": title, "bvid": bvid, "step": "获取字幕"})
 
@@ -173,6 +228,13 @@ async def process_single_video(url: str, model: str, output_subdir: str, task_id
         final_subdir = output_subdir
         if not subtitle_text:
             final_subdir = f"{output_subdir}/no_subtitle"
+            # Increment retry counter for no_subtitle
+            increment_retry_count(output_subdir, safe_title)
+        else:
+            # If this was a retry and now we have subtitles, clean up old no_subtitle file
+            if nosub_path.exists():
+                nosub_path.unlink()
+                clear_retry_count(output_subdir, safe_title)
 
         save_summary(title, bvid, url, duration, summary, final_subdir)
 
