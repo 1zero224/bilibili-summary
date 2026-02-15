@@ -993,6 +993,87 @@ textarea {
     display: block;
 }
 
+/* ===================== BROWSE CARD GRID ===================== */
+.browse-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    padding: 4px 0;
+}
+
+.browse-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 80px;
+}
+
+.browse-card:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-hover);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+}
+
+.browse-card .browse-card-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.browse-card .browse-card-icon.has-subtitle {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.1));
+    color: var(--accent);
+}
+
+.browse-card .browse-card-icon.no-subtitle {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(234, 88, 12, 0.1));
+    color: var(--warning);
+}
+
+.browse-card .browse-card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+}
+
+.browse-card .browse-card-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 500;
+    align-self: flex-start;
+}
+
+.browse-card .browse-card-badge.done {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(5, 150, 105, 0.08));
+    color: var(--success);
+}
+
+.browse-card .browse-card-badge.no_subtitle {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(234, 88, 12, 0.08));
+    color: var(--warning);
+}
+
 /* ===================== BROWSE LIST ===================== */
 .summary-item {
     display: flex;
@@ -1552,6 +1633,45 @@ textarea {
     font-weight: 700;
     color: var(--accent);
     margin-left: auto;
+}
+
+/* ---- Action Buttons (reading view) ---- */
+.action-btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1px solid;
+    background: transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: opacity 0.2s;
+    font-family: inherit;
+}
+
+.action-btn:hover {
+    opacity: 0.8;
+}
+
+.action-btn-retry {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.action-btn-asr {
+    color: var(--success);
+    border-color: var(--success);
+}
+
+.action-btn-unfav {
+    color: var(--error);
+    border-color: var(--error);
+}
+
+.action-btn-open {
+    color: var(--info);
+    border-color: var(--info);
 }
 
 /* ---- Toast Notifications ---- */

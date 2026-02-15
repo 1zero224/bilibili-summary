@@ -244,17 +244,12 @@ function showCategory(type, navEl) {
     document.getElementById('browseTitle').textContent = `${cat.icon} ${cat.label}`;
     document.getElementById('browseSubtitle').textContent = `共 ${cat.items.length} 篇总结`;
 
-    // Render item list
+    // Render card grid
     const readingView = document.getElementById('readingView');
     readingView.classList.remove('active');
     const list = document.getElementById('browseList');
     list.style.display = 'block';
-    list.innerHTML = cat.items.map(item => `
-        <div class="summary-item" onclick="openSummary('${encodePath(item.path)}')">
-            <span class="icon"><i data-lucide="${item.no_subtitle ? 'alert-triangle' : 'file-text'}" class="lucide-icon"></i></span>
-            <span class="title">${escapeHtml(item.name)}</span>
-        </div>
-    `).join('');
+    list.innerHTML = `<div class="browse-grid">${cat.items.map(item => renderBrowseCard(item)).join('')}</div>`;
     lucide.createIcons({ nodes: [list] });
 }
 
@@ -281,25 +276,64 @@ function showUserVideos(uid, navEl) {
     lucide.createIcons({ nodes: [document.getElementById('browseTitle')] });
     document.getElementById('browseSubtitle').textContent = `UID: ${group.uid} · ${group.count} 篇总结`;
 
-    // Render item list
+    // Render card grid
     const readingView = document.getElementById('readingView');
     readingView.classList.remove('active');
     const list = document.getElementById('browseList');
     list.style.display = 'block';
-    list.innerHTML = group.items.map(item => `
-        <div class="summary-item" onclick="openSummary('${encodePath(item.path)}')">
-            <span class="icon"><i data-lucide="${item.no_subtitle ? 'alert-triangle' : 'file-text'}" class="lucide-icon"></i></span>
-            <span class="title">${escapeHtml(item.name)}</span>
-        </div>
-    `).join('');
+    list.innerHTML = `<div class="browse-grid">${group.items.map(item => renderBrowseCard(item)).join('')}</div>`;
     lucide.createIcons({ nodes: [list] });
 }
 
 // ---------------------------------------------------------------------------
-// Reading View
+// Browse: Render a summary card for the browse grid
 // ---------------------------------------------------------------------------
+function renderBrowseCard(item) {
+    const iconType = item.no_subtitle ? 'alert-triangle' : 'file-text';
+    const iconClass = item.no_subtitle ? 'no-subtitle' : 'has-subtitle';
+    const badgeClass = item.no_subtitle ? 'no_subtitle' : 'done';
+    const badgeText = item.no_subtitle ? '无字幕' : '已总结';
+
+    return `
+        <div class="browse-card" onclick="openSummary('${encodePath(item.path)}')">
+            <div class="browse-card-icon ${iconClass}">
+                <i data-lucide="${iconType}" class="lucide-icon" style="width:18px;height:18px;"></i>
+            </div>
+            <div class="browse-card-title" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</div>
+            <span class="browse-card-badge ${badgeClass}">${badgeText}</span>
+        </div>
+    `;
+}
+
+// ---------------------------------------------------------------------------
+// Reading View — shared helpers
+// ---------------------------------------------------------------------------
+function buildActionButtons(bvid, { isNoSub = false, showUnfav = false, showOpen = true } = {}) {
+    let html = '';
+    if (bvid && isNoSub) {
+        html += `<button class="action-btn action-btn-retry" onclick="retrySummarize('${bvid}')">重试</button>`;
+        html += `<button class="action-btn action-btn-asr" onclick="asrSummarize('${bvid}')"><i data-lucide="mic" class="lucide-icon" style="width:12px;height:12px;"></i> 语音识别总结</button>`;
+    }
+    if (bvid && showOpen) {
+        html += `<button class="action-btn action-btn-open" onclick="openExternal('https://www.bilibili.com/video/${bvid}')"><i data-lucide="external-link" class="lucide-icon" style="width:12px;height:12px;"></i> B站打开</button>`;
+    }
+    if (bvid && showUnfav) {
+        html += `<button class="action-btn action-btn-unfav" onclick="unfavoriteFromReading('${bvid}')">✕ 取消收藏</button>`;
+    }
+    return html;
+}
+
+function setupExternalLinks(container) {
+    container.querySelectorAll('a').forEach(a => {
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            openExternal(a.href);
+        });
+    });
+}
+
 async function openSummary(encodedPath) {
-    const apiPath = encodedPath; // already encoded per segment
+    const apiPath = encodedPath;
     const list = document.getElementById('browseList');
     const readingView = document.getElementById('readingView');
     const readingContent = document.getElementById('readingContent');
@@ -313,28 +347,14 @@ async function openSummary(encodedPath) {
         readingView.classList.add('active');
         readingContent.innerHTML = renderMarkdown(data.content);
 
-        // Extract bvid from content and show action buttons
         const bvidMatch = data.content.match(/\*\*BV号\*\*:\s*(BV\w+)/);
         const bvid = bvidMatch ? bvidMatch[1] : '';
         const isNoSub = data.content.includes('无法获取字幕');
-        let actionsHtml = '';
-        if (bvid && isNoSub) {
-            actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--accent);border-color:var(--accent);" onclick="retrySummarize('${bvid}')">重试</button>`;
-            actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--success);border-color:var(--success);" onclick="asrSummarize('${bvid}')"><i data-lucide="mic" class="lucide-icon" style="width:12px;height:12px;"></i> 语音识别总结</button>`;
-        }
-        if (bvid) {
-            actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--info);border-color:var(--info);" onclick="openExternal('https://www.bilibili.com/video/${bvid}')"><i data-lucide="external-link" class="lucide-icon" style="width:12px;height:12px;"></i> B站打开</button>`;
-        }
+        const actionsHtml = buildActionButtons(bvid, { isNoSub });
         actions.innerHTML = actionsHtml;
         if (actionsHtml) lucide.createIcons();
 
-        // Make links in summary open externally
-        readingContent.querySelectorAll('a').forEach(a => {
-            a.addEventListener('click', (e) => {
-                e.preventDefault();
-                openExternal(a.href);
-            });
-        });
+        setupExternalLinks(readingContent);
     } catch (err) { alert('加载失败: ' + err.message); }
 }
 
@@ -1015,16 +1035,9 @@ async function showVideoSummary(bvid, path) {
         }
         const data = await res.json();
         if (data.content) {
-            // Detect no-subtitle content → show retry button
             const isNoSub = data.content.includes('无法获取字幕');
             const actions = document.getElementById('favReadingActions');
-            let actionsHtml = '';
-            if (isNoSub) {
-                actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--accent);border-color:var(--accent);" onclick="retrySummarize('${bvid}')">重试</button>`;
-                actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--success);border-color:var(--success);" onclick="asrSummarize('${bvid}')"><i data-lucide="mic" class="lucide-icon" style="width:12px;height:12px;"></i> 语音识别总结</button>`;
-            }
-            actionsHtml += `<button class="btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--error);border-color:var(--error);" onclick="unfavoriteFromReading('${bvid}')">✕ 取消收藏</button>`;
-            actions.innerHTML = actionsHtml;
+            actions.innerHTML = buildActionButtons(bvid, { isNoSub, showUnfav: true });
             lucide.createIcons();
 
             readingContent.innerHTML = renderMarkdown(data.content);
@@ -1037,7 +1050,6 @@ async function showVideoSummary(bvid, path) {
                     : `<strong>作者</strong>: ${escapeHtml(vdata.upper)}`;
                 const authorEl = document.createElement('p');
                 authorEl.innerHTML = authorLink;
-                // Insert after 视频链接 paragraph
                 const paragraphs = readingContent.querySelectorAll('p');
                 let inserted = false;
                 for (const p of paragraphs) {
@@ -1051,13 +1063,7 @@ async function showVideoSummary(bvid, path) {
                     paragraphs[0].insertAdjacentElement('afterend', authorEl);
                 }
             }
-            // Make links in summary open externally
-            readingContent.querySelectorAll('a').forEach(a => {
-                a.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    openExternal(a.href);
-                });
-            });
+            setupExternalLinks(readingContent);
         } else {
             readingContent.innerHTML = '<p style="color:var(--error);">总结内容为空</p>';
         }
