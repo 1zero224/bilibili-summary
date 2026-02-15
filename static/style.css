@@ -356,7 +356,8 @@ body::before {
     padding: 10px 14px;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--text-md);
+    font-weight: 400;
     color: var(--text-secondary);
     transition: all var(--duration-fast) var(--ease-standard);
     -webkit-app-region: no-drag;
@@ -366,11 +367,38 @@ body::before {
 .nav-parent:hover {
     background: var(--hover);
     color: var(--text-primary);
+    transform: translateX(2px);
+}
+
+.nav-parent.active {
+    background: var(--accent-glow);
+    color: var(--accent);
+    font-weight: 500;
+    position: relative;
+}
+
+.nav-parent.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 18px;
+    background: var(--accent-gradient);
+    border-radius: 2px;
+}
+
+.nav-parent .icon {
+    width: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .nav-parent .label {
     flex: 1;
-    font-weight: 450;
+    font-weight: inherit;
 }
 
 .nav-parent .count {
@@ -1958,6 +1986,7 @@ textarea {
 .fav-folder-item:hover {
     background: var(--hover);
     color: var(--text-primary);
+    transform: translateX(2px);
 }
 
 .fav-folder-item.active {
@@ -1989,8 +2018,11 @@ textarea {
 }
 
 .fav-folder-item .folder-name .lucide-icon {
-    width: 16px;
+    width: 22px;
     height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     color: var(--text-muted);
 }
 
@@ -2021,7 +2053,8 @@ textarea {
 .fav-folder-toggle {
     padding: 10px 14px;
     font-size: var(--text-md);
-    color: var(--text-muted);
+    font-weight: 400;
+    color: var(--text-secondary);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -2032,13 +2065,22 @@ textarea {
 }
 
 .fav-folder-toggle:hover {
-    color: var(--text-secondary);
+    color: var(--text-primary);
     background: var(--hover);
+    transform: translateX(2px);
 }
 
 .fav-folder-toggle .toggle-arrow {
+    width: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     color: var(--text-muted);
     transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.fav-folder-toggle.expanded .toggle-arrow {
+    transform: rotate(90deg);
 }
 
 .fav-folder-list {

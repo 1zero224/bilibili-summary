@@ -119,7 +119,7 @@ document.querySelectorAll('.nav-item[data-page]').forEach(item => {
 
 function switchToPage(pageId, navEl) {
     // Clear all active states
-    document.querySelectorAll('.nav-item, .nav-child').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.nav-item, .nav-parent, .nav-child').forEach(n => n.classList.remove('active'));
     document.querySelectorAll('.fav-folder-item').forEach(n => n.classList.remove('active'));
     // Set active on clicked element
     if (navEl) navEl.classList.add('active');
@@ -430,7 +430,8 @@ function showCategory(type, navEl) {
     if (!cat) return;
 
     // Update active state
-    document.querySelectorAll('.nav-item, .nav-child').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.nav-item, .nav-parent, .nav-child').forEach(n => n.classList.remove('active'));
+    if (navEl) navEl.classList.add('active');
 
     // Switch to browse page
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -461,7 +462,7 @@ function showUserVideos(uid, navEl) {
     if (!group) return;
 
     // Update active state
-    document.querySelectorAll('.nav-item, .nav-child').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.nav-item, .nav-parent, .nav-child').forEach(n => n.classList.remove('active'));
     if (navEl) navEl.classList.add('active');
 
     // Switch to browse page
@@ -1182,10 +1183,12 @@ async function loadFavoriteFolders() {
 
 function toggleFavFolders() {
     const list = document.getElementById('favFolderList');
-    const arrow = document.getElementById('favFoldArrow');
+    const toggle = document.querySelector('.fav-folder-toggle');
     if (!list) return;
     list.classList.toggle('collapsed');
-    arrow.textContent = list.classList.contains('collapsed') ? '▸' : '▾';
+    if (toggle) {
+        toggle.classList.toggle('expanded', !list.classList.contains('collapsed'));
+    }
 }
 
 // Event delegation for video card clicks
