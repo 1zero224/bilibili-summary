@@ -1131,7 +1131,7 @@ async function loadFavoriteFolders() {
         if (defaultFolder) {
             html += `
                 <div class="fav-folder-item" data-fav-id="${defaultFolder.id}" data-fav-title="${escapeHtml(defaultFolder.title)}">
-                    <span class="folder-name"><i data-lucide="folder" class="lucide-icon" style="width:14px;height:14px;"></i> ${escapeHtml(defaultFolder.title)}</span>
+                    <span class="folder-name"><i data-lucide="folder" class="lucide-icon"></i> ${escapeHtml(defaultFolder.title)}</span>
                     <span class="folder-count">${defaultFolder.count}</span>
                 </div>`;
         }
@@ -1140,13 +1140,13 @@ async function loadFavoriteFolders() {
         if (otherFolders.length > 0) {
             html += `
                 <div class="fav-folder-toggle" onclick="toggleFavFolders()">
-                    <span class="toggle-arrow" id="favFoldArrow"><i data-lucide="chevron-right" class="lucide-icon" style="width:12px;height:12px;"></i></span>
-                    <span>其他收藏夹 (${otherFolders.length})</span>
+                    <span class="toggle-arrow" id="favFoldArrow"><i data-lucide="chevron-right" class="lucide-icon"></i></span>
+                    <span>其他收藏 (${otherFolders.length})</span>
                 </div>
                 <div class="fav-folder-list collapsed" id="favFolderList">
                     ${otherFolders.map(f => `
                         <div class="fav-folder-item" data-fav-id="${f.id}" data-fav-title="${escapeHtml(f.title)}">
-                            <span class="folder-name"><i data-lucide="folder" class="lucide-icon" style="width:14px;height:14px;"></i> ${escapeHtml(f.title)}</span>
+                            <span class="folder-name"><i data-lucide="folder" class="lucide-icon"></i> ${escapeHtml(f.title)}</span>
                             <span class="folder-count">${f.count}</span>
                         </div>
                     `).join('')}

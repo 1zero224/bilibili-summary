@@ -1888,16 +1888,19 @@ textarea {
 
 /* Sidebar favorites folder items */
 .fav-folder-item {
-    padding: 6px 12px;
+    position: relative;
+    padding: 10px 14px;
     margin: 2px 0;
-    border-radius: var(--radius-xs);
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--text-secondary);
     display: flex;
     align-items: center;
+    gap: 10px;
     justify-content: space-between;
     transition: all var(--duration-fast) var(--ease-standard);
+    -webkit-app-region: no-drag;
 }
 
 .fav-folder-item:hover {
@@ -1911,17 +1914,46 @@ textarea {
     font-weight: 500;
 }
 
+.fav-folder-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 18px;
+    background: var(--accent-gradient);
+    border-radius: 2px;
+}
+
 .fav-folder-item .folder-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
 }
 
-.fav-folder-item .folder-count {
-    font-size: 11px;
+.fav-folder-item .folder-name .lucide-icon {
+    width: 16px;
+    height: 16px;
     color: var(--text-muted);
-    margin-left: 8px;
+}
+
+.fav-folder-item.active .folder-name .lucide-icon {
+    color: var(--accent);
+}
+
+.fav-folder-item .folder-count {
+    font-size: 10px;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 7px;
+    border-radius: 10px;
+    color: var(--text-muted);
+    margin-left: 6px;
     flex-shrink: 0;
 }
 
@@ -1935,29 +1967,33 @@ textarea {
 
 /* Collapsible folder list */
 .fav-folder-toggle {
-    padding: 5px 12px;
-    font-size: 12px;
+    padding: 10px 14px;
+    font-size: var(--text-md);
     color: var(--text-muted);
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 6px;
-    transition: color 0.2s;
+    gap: 10px;
+    border-radius: var(--radius-sm);
+    transition: all var(--duration-fast) var(--ease-standard);
+    -webkit-app-region: no-drag;
 }
 
 .fav-folder-toggle:hover {
     color: var(--text-secondary);
+    background: var(--hover);
 }
 
 .fav-folder-toggle .toggle-arrow {
-    font-size: 10px;
-    transition: transform 0.2s;
+    color: var(--text-muted);
+    transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .fav-folder-list {
+    padding-left: 20px;
     overflow: hidden;
     max-height: 500px;
-    transition: max-height 0.3s ease;
+    transition: max-height var(--duration-normal) var(--ease-standard);
 }
 
 .fav-folder-list.collapsed {
