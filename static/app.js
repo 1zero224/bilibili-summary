@@ -160,14 +160,84 @@ function closeLoginModal() {
     if (loginEventSource) { loginEventSource.close(); loginEventSource = null; }
 }
 
+function showActionDialog({
+    title = '提示',
+    message = '',
+    confirmText = '确定',
+    cancelText = '',
+    danger = false,
+} = {}) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay active';
+
+        const confirmBtnClass = danger ? 'btn btn-danger' : 'btn btn-primary';
+        overlay.innerHTML = `
+            <div class="modal dialog-modal" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+                <div class="modal-header">
+                    <h3 id="dialogTitle">${escapeHtml(title)}</h3>
+                    <button type="button" class="modal-close" data-action="close" aria-label="关闭">✕</button>
+                </div>
+                <div class="modal-body modal-body-left">
+                    <p class="modal-message">${escapeHtml(message)}</p>
+                    <div class="modal-actions">
+                        ${cancelText ? `<button type="button" class="btn btn-secondary" data-action="cancel">${escapeHtml(cancelText)}</button>` : ''}
+                        <button type="button" class="${confirmBtnClass}" data-action="confirm">${escapeHtml(confirmText)}</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const closeAndResolve = (result) => {
+            overlay.remove();
+            document.removeEventListener('keydown', onKeyDown);
+            resolve(result);
+        };
+
+        const onKeyDown = (e) => {
+            if (e.key === 'Escape') closeAndResolve(false);
+        };
+        document.addEventListener('keydown', onKeyDown);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeAndResolve(false);
+            if (e.target.closest('[data-action="close"]')) closeAndResolve(false);
+            if (e.target.closest('[data-action="cancel"]')) closeAndResolve(false);
+            if (e.target.closest('[data-action="confirm"]')) closeAndResolve(true);
+        });
+    });
+}
+
+function showAlert(message, title = '提示') {
+    return showActionDialog({ title, message, confirmText: '知道了' });
+}
+
+function showConfirm(message, {
+    title = '请确认',
+    confirmText = '确定',
+    cancelText = '取消',
+    danger = false,
+} = {}) {
+    return showActionDialog({ title, message, confirmText, cancelText, danger });
+}
+
 async function doLogout() {
-    if (!confirm('确定要退出登录吗？')) return;
+    const confirmed = await showConfirm('确定要退出登录吗？', {
+        title: '退出登录',
+        confirmText: '退出登录',
+        cancelText: '取消',
+        danger: true,
+    });
+    if (!confirmed) return;
+
     try {
         await fetch('/api/logout', { method: 'POST' });
         checkStatus();
         loadFavoriteFolders();
     } catch (err) {
-        alert('注销失败: ' + err.message);
+        await showAlert('注销失败: ' + err.message, '退出失败');
     }
 }
 
@@ -488,7 +558,7 @@ async function openSummary(encodedPath) {
     try {
         const res = await fetch(`/api/summary/${apiPath}`);
         const data = await res.json();
-        if (data.error) { alert(data.error); return; }
+        if (data.error) { await showAlert(data.error, '加载失败'); return; }
         list.style.display = 'none';
         readingView.classList.add('active');
         readingContent.innerHTML = renderMarkdown(data.content);
@@ -507,7 +577,7 @@ async function openSummary(encodedPath) {
         });
 
         setupExternalLinks(readingContent);
-    } catch (err) { alert('加载失败: ' + err.message); }
+    } catch (err) { await showAlert('加载失败: ' + err.message, '加载失败'); }
 }
 
 function closeReading() {
@@ -836,9 +906,9 @@ async function submitURL() {
             body: JSON.stringify({ urls, concurrency })
         });
         const data = await res.json();
-        if (data.error) { alert(data.error); return; }
+        if (data.error) { await showAlert(data.error, '请求失败'); return; }
         listenProgress(data.task_id, 'url');
-    } catch (err) { alert('请求失败: ' + err.message); }
+    } catch (err) { await showAlert('请求失败: ' + err.message, '请求失败'); }
 }
 
 async function submitUser() {
@@ -853,9 +923,9 @@ async function submitUser() {
             body: JSON.stringify({ user: userVal, count, concurrency })
         });
         const data = await res.json();
-        if (data.error) { alert(data.error); return; }
+        if (data.error) { await showAlert(data.error, '请求失败'); return; }
         listenProgress(data.task_id, 'user');
-    } catch (err) { alert('请求失败: ' + err.message); }
+    } catch (err) { await showAlert('请求失败: ' + err.message, '请求失败'); }
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,7 +1595,7 @@ async function unfavoriteVideo(bvid, cardEl) {
         });
         const data = await res.json();
         if (data.error) {
-            alert('取消收藏失败: ' + data.error);
+            await showAlert('取消收藏失败: ' + data.error, '操作失败');
             if (cardEl) {
                 cardEl.style.opacity = '';
                 cardEl.style.pointerEvents = '';
@@ -1541,7 +1611,7 @@ async function unfavoriteVideo(bvid, cardEl) {
         }
         favVideoData.delete(bvid);
     } catch (err) {
-        alert('取消收藏失败: ' + err.message);
+        await showAlert('取消收藏失败: ' + err.message, '操作失败');
         if (cardEl) {
             cardEl.style.opacity = '';
             cardEl.style.pointerEvents = '';
@@ -1558,7 +1628,7 @@ async function unfavoriteFromReading(bvid) {
         });
         const data = await res.json();
         if (data.error) {
-            alert('取消收藏失败: ' + data.error);
+            await showAlert('取消收藏失败: ' + data.error, '操作失败');
             return;
         }
         // Remove card from grid
@@ -1568,7 +1638,7 @@ async function unfavoriteFromReading(bvid) {
         // Go back to grid
         closeFavReading();
     } catch (err) {
-        alert('取消收藏失败: ' + err.message);
+        await showAlert('取消收藏失败: ' + err.message, '操作失败');
     }
 }
 

@@ -592,6 +592,9 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: center;
+    border: none;
+    background: transparent;
+    padding: 0;
     border-radius: 6px;
     cursor: pointer;
     color: var(--text-muted);
@@ -610,6 +613,33 @@ body::before {
     flex-direction: column;
     align-items: center;
     gap: 16px;
+}
+
+.modal-body.modal-body-left {
+    align-items: stretch;
+}
+
+.dialog-modal {
+    width: 380px;
+    max-width: calc(100vw - 24px);
+}
+
+.modal-message {
+    margin: 0;
+    font-size: var(--text-md);
+    color: var(--text-secondary);
+    line-height: 1.6;
+    word-break: break-word;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.modal-actions .btn {
+    min-width: 88px;
 }
 
 .qr-container {
@@ -840,6 +870,18 @@ textarea {
     cursor: not-allowed;
     transform: none;
     filter: none;
+}
+
+.btn-danger {
+    background: color-mix(in srgb, var(--error) 86%, #1f2937);
+    color: #fff;
+    border: 1px solid color-mix(in srgb, var(--error) 70%, transparent);
+}
+
+.btn-danger:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--error) 26%, transparent);
 }
 
 /* ===================== PROGRESS ===================== */
