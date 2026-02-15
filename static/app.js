@@ -957,7 +957,7 @@ function selectFavoriteFolder(favId, title) {
     grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);"><span class="spinner"></span> 加载中...</div>';
     grid.style.display = '';
     document.getElementById('favAutoProgress').innerHTML = '';
-    document.getElementById('favReadingView').style.display = 'none';
+    document.getElementById('favReadingView').classList.remove('active');
     document.getElementById('favLoadMore').style.display = 'none';
     setFavViewMode(favViewMode);
 
@@ -1264,7 +1264,7 @@ async function showVideoSummary(bvid, path) {
     grid.style.display = 'none';
     loadMore.style.display = 'none';
     document.getElementById('favAutoProgress').style.display = 'none';
-    readingView.style.display = 'block';
+    readingView.classList.add('active');
 
     try {
         // Encode path segments for URL (preserve /)
@@ -1314,7 +1314,7 @@ async function showVideoSummary(bvid, path) {
 }
 
 function closeFavReading() {
-    document.getElementById('favReadingView').style.display = 'none';
+    document.getElementById('favReadingView').classList.remove('active');
     document.getElementById('favVideoGrid').style.display = '';
     document.getElementById('favAutoProgress').style.display = '';
     document.getElementById('favLoadMore').style.display = favHasMore ? '' : 'none';
@@ -1453,7 +1453,7 @@ async function asrSummarize(bvid) {
                         }
                         // Auto-open the summary if user is still on this video's reading view
                         const readingView = document.getElementById('favReadingView');
-                        if (readingView && readingView.style.display === 'block') {
+                        if (readingView && readingView.classList.contains('active')) {
                             showVideoSummary(bvid, d.path);
                         }
                         setTimeout(() => { toast.classList.add('toast-fadeout'); setTimeout(() => toast.remove(), 300); }, 5000);

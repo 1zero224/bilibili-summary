@@ -1360,6 +1360,25 @@ textarea {
     animation: pageIn 0.3s ease;
 }
 
+.reading-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 24px;
+}
+
+.reading-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.reading-actions {
+    display: flex;
+    gap: 8px;
+}
+
 .reading-view .back-btn {
     display: inline-flex;
     align-items: center;
@@ -1741,27 +1760,6 @@ textarea {
 .fav-auto-progress .mini-log .log-line {
     padding: 2px 0;
     font-size: 11px;
-}
-
-/* Fav reading view */
-#favReadingView {
-    background: var(--bg-card);
-    border-radius: var(--radius-md);
-    padding: 24px;
-}
-
-#favReadingView .back-btn {
-    display: inline-block;
-    color: var(--accent);
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    margin-bottom: 16px;
-    transition: color 0.2s;
-}
-
-#favReadingView .back-btn:hover {
-    color: var(--accent-hover);
 }
 
 /* Sidebar favorites folder items */
