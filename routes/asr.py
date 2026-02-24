@@ -31,7 +31,7 @@ def _new_temp_path(suffix: str) -> str:
 
 
 @router.post("/asr-summarize/{bvid}")
-async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
+async def asr_summarize(bvid: str, output_subdir: str = ""):
     """Download audio → GLM-ASR transcription → LLM summary via SSE."""
     from routes.deps import credential, ai_client, DEFAULT_MODEL
 
@@ -54,6 +54,27 @@ async def asr_summarize(bvid: str, output_subdir: str = "favorites"):
             author_uid = owner.get("mid", 0)
             safe_title = sanitize_filename(title)
             url = f"https://www.bilibili.com/video/{bvid}"
+
+            # Auto-detect output_subdir if not provided
+            nonlocal output_subdir
+            if not output_subdir:
+                summary_root = DATA_DIR / "summary"
+                for subdir in ["standalone", "favorites"]:
+                    if (summary_root / subdir / f"{safe_title}.md").exists() or \
+                       (summary_root / subdir / "no_subtitle" / f"{safe_title}.md").exists():
+                        output_subdir = subdir
+                        break
+                if not output_subdir:
+                    users_dir = summary_root / "users"
+                    if users_dir.exists():
+                        for uid_folder in users_dir.iterdir():
+                            if uid_folder.is_dir():
+                                if (uid_folder / f"{safe_title}.md").exists() or \
+                                   (uid_folder / "no_subtitle" / f"{safe_title}.md").exists():
+                                    output_subdir = f"users/{uid_folder.name}"
+                                    break
+                if not output_subdir:
+                    output_subdir = "standalone"
 
             # Step 2: Get audio download URL (use lowest quality to minimize size)
             yield f"data: {json.dumps({'step': 'audio_url', 'message': '获取音频流地址...'})}\n\n"

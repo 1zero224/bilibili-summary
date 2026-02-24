@@ -695,7 +695,7 @@ function renderReadingActions(containerId, {
     const buttons = [];
     if (bvid && enableRetry) {
         buttons.push(
-            `<button class="action-btn action-btn-retry" onclick="retrySummarize('${bvid}')"><i data-lucide="refresh-cw" class="lucide-icon icon-xs"></i> 重新总结</button>`
+            `<button class="action-btn action-btn-retry" onclick="retrySummarize('${bvid}', ${isNoSub})"><i data-lucide="refresh-cw" class="lucide-icon icon-xs"></i> 重新总结</button>`
         );
     }
     if (bvid && showOpen) {
@@ -1674,11 +1674,17 @@ function closeFavReading() {
     updateGlobalBackButton();
 }
 
-async function retrySummarize(bvid) {
+async function retrySummarize(bvid, isNoSub = false) {
     // Support both browse and favorites reading views
     const favView = document.getElementById('favReadingView');
     const isFavView = favView && favView.classList.contains('active');
     const readingContent = document.getElementById(isFavView ? 'favReadingContent' : 'readingContent');
+
+    // If known no-subtitle, go directly to ASR
+    if (isNoSub) {
+        return retryWithASR(bvid, readingContent);
+    }
+
     renderState(readingContent, { type: 'loading', title: '处理中', message: '正在重新获取字幕并生成总结' });
 
     try {
@@ -1692,7 +1698,6 @@ async function retrySummarize(bvid) {
         const taskId = data.task_id;
         renderState(readingContent, { type: 'loading', title: '处理中', message: '正在获取字幕' });
 
-        // Listen to SSE for progress (server sends named events)
         const evtSrc = new EventSource(`/api/progress/${taskId}`);
 
         evtSrc.addEventListener('processing', (e) => {
@@ -1708,11 +1713,9 @@ async function retrySummarize(bvid) {
                 const d = JSON.parse(e.data);
                 const badge = document.getElementById(`badge-${bvid}`);
                 if (d.status === 'no_subtitle') {
-                    if (badge) {
-                        badge.className = 'summary-badge no_subtitle';
-                        badge.textContent = statusText('no_subtitle');
-                    }
-                    renderState(readingContent, { type: 'error', title: '无字幕', message: '仍然无法获取字幕，可稍后再试' });
+                    // Subtitle retry failed — automatically fall back to ASR
+                    renderState(readingContent, { type: 'loading', title: '字幕不可用', message: '自动切换到语音识别模式...' });
+                    retryWithASR(bvid, readingContent);
                 } else {
                     if (badge) {
                         badge.className = 'summary-badge done';
@@ -1746,6 +1749,70 @@ async function retrySummarize(bvid) {
         };
     } catch (err) {
         renderState(readingContent, { type: 'error', title: '重试失败', message: err.message });
+    }
+}
+
+async function retryWithASR(bvid, readingContent) {
+    renderState(readingContent, { type: 'loading', title: '语音识别总结', message: '准备中...' });
+
+    try {
+        const res = await fetch(`/api/asr-summarize/${bvid}`, { method: 'POST' });
+        if (!res.ok) {
+            const err = await res.json();
+            renderState(readingContent, { type: 'error', title: '语音识别失败', message: err.error || '未知错误' });
+            return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { value, done: streamDone } = await reader.read();
+            if (streamDone) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                    const d = JSON.parse(line.slice(6));
+
+                    if (d.step === 'error') {
+                        renderState(readingContent, { type: 'error', title: '语音识别失败', message: d.message });
+                        return;
+                    }
+
+                    if (d.step === 'done') {
+                        const badge = document.getElementById(`badge-${bvid}`);
+                        if (badge) {
+                            badge.className = 'summary-badge done';
+                            badge.textContent = statusText('success');
+                        }
+                        const vdata = favVideoData.get(bvid);
+                        if (vdata && d.path) {
+                            vdata.summaryPath = d.path;
+                        }
+                        // Show the summary in reading view
+                        const favView = document.getElementById('favReadingView');
+                        const isFavView = favView && favView.classList.contains('active');
+                        if (isFavView) {
+                            showVideoSummary(bvid, d.path);
+                        } else if (d.path) {
+                            openSummary(encodePath(d.path));
+                        }
+                        loadSidebarBrowse();
+                        return;
+                    }
+
+                    renderState(readingContent, { type: 'loading', title: '语音识别总结', message: d.message });
+                } catch (_) { }
+            }
+        }
+    } catch (err) {
+        renderState(readingContent, { type: 'error', title: '语音识别失败', message: err.message });
     }
 }
 
