@@ -14,10 +14,13 @@
     <div id="toastContainer" class="toast-container"></div>
     <div class="app">
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="header-row">
                     <h1><span class="icon"><i data-lucide="tv" class="lucide-icon"></i></span> BiliSummary</h1>
+                    <button class="theme-toggle sidebar-collapse-toggle" id="sidebarToggle" onclick="toggleSidebar()" title="折叠侧边栏">
+                        <i data-lucide="panel-left-close" class="lucide-icon" id="sidebarToggleIcon"></i>
+                    </button>
                     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换主题">
                         <i data-lucide="moon" class="lucide-icon" id="themeIcon"></i>
                     </button>
@@ -28,10 +31,10 @@
                 <!-- Summarize -->
                 <div class="nav-section">
                     <div class="nav-section-title">总结</div>
-                    <div class="nav-item active" data-page="url-page">
+                    <div class="nav-item active" data-page="url-page" title="URL 模式">
                         <span class="icon"><i data-lucide="link" class="lucide-icon"></i></span> URL 模式
                     </div>
-                    <div class="nav-item" data-page="user-page">
+                    <div class="nav-item" data-page="user-page" title="UP 主模式">
                         <span class="icon"><i data-lucide="user" class="lucide-icon"></i></span> UP 主模式
                     </div>
                 </div>
@@ -42,22 +45,30 @@
                 </div>
                 <!-- Browse — dynamically populated -->
                 <div class="nav-section">
-                    <div class="nav-section-title">浏览</div>
+                    <div class="nav-section-title nav-section-title-row">
+                        <span>所有视频</span>
+                        <button class="nav-icon-btn" type="button" title="新建文件夹" onclick="createLocalFolder(event)">
+                            <i data-lucide="folder-plus" class="lucide-icon icon-sm"></i>
+                        </button>
+                    </div>
                     <div id="sidebarBrowse"></div>
                 </div>
             </nav>
             <div class="sidebar-footer">
-                <div class="nav-item nav-item-settings" data-page="settings-page">
+                <div class="nav-item nav-item-settings" data-page="settings-page" title="设置">
                     <span class="icon"><i data-lucide="settings" class="lucide-icon"></i></span> 设置
                 </div>
                 <div class="status-row">
                     <span class="status-dot" id="statusDot"></span>
                     <span class="status-text" id="statusText">检查中...</span>
                 </div>
-                <button class="btn-footer is-hidden" id="loginBtn" onclick="startLogin()">
+                <button class="btn-footer is-hidden" id="loginBtn" onclick="startLogin()" title="登录">
                     <i data-lucide="key-round" class="lucide-icon icon-sm"></i> 登录
                 </button>
-                <button class="btn-footer btn-footer-danger is-hidden" id="logoutBtn" onclick="doLogout()">退出登录</button>
+                <button class="btn-footer btn-footer-danger is-hidden" id="logoutBtn" onclick="doLogout()" title="退出登录">
+                    <i data-lucide="log-out" class="lucide-icon icon-sm"></i>
+                    <span>退出登录</span>
+                </button>
             </div>
         </aside>
 
@@ -82,23 +93,25 @@
                         </div>
                         <div class="input-row">
                             <div class="form-group">
-                                <label>并发数</label>
-                                <input class="input" id="urlConcurrency" type="number" value="12">
+                                <label>保存到</label>
+                                <select class="input" id="urlFolderSelect"></select>
                             </div>
                         </div>
-                        <button class="btn btn-primary" id="urlSubmit" onclick="submitURL()">
-                            <i data-lucide="play" class="lucide-icon icon-sm"></i> 开始总结
-                        </button>
+                        <div class="generation-actions">
+                            <button class="btn btn-primary" id="urlSubmit" onclick="submitURL()">
+                                <i data-lucide="play" class="lucide-icon icon-sm"></i> 开始总结
+                            </button>
+                        </div>
                     </div>
-                    <div class="progress-area" id="urlProgress">
-                        <div class="card">
-                            <div class="card-title"><i data-lucide="bar-chart-3" class="lucide-icon icon-md"></i> 进度</div>
-                            <div class="progress-bar-container">
-                                <div class="progress-bar" id="urlProgressBar"></div>
-                            </div>
-                            <div class="progress-stats" id="urlStats"></div>
-                            <div class="log-container" id="urlLog"></div>
+                    <div class="card task-log-card">
+                        <div class="task-log-header">
+                            <div class="card-title"><i data-lucide="list-checks" class="lucide-icon icon-md"></i> 任务日志</div>
+                            <button class="btn-secondary btn-secondary-compact" onclick="loadUrlTaskLogs(1)">
+                                <i data-lucide="refresh-cw" class="lucide-icon icon-xs"></i> 刷新
+                            </button>
                         </div>
+                        <div class="task-log-list" id="urlTaskLogList"></div>
+                        <div class="task-log-pagination" id="urlTaskLogPagination"></div>
                     </div>
                     <div class="results-area" id="urlResults"></div>
                 </div>
@@ -106,9 +119,14 @@
 
             <!-- User Page -->
             <div class="page" id="user-page">
-                <div class="main-header">
-                    <h2><i data-lucide="user" class="lucide-icon"></i> UP 主模式</h2>
-                    <p>输入 UP 主的名字或 UID，批量总结视频</p>
+                <div class="main-header user-header-row">
+                    <div>
+                        <h2><i data-lucide="user" class="lucide-icon"></i> UP 主模式</h2>
+                        <p id="userBrowseSubtitle">输入 UP 主的名字或 UID，加载视频后选择总结</p>
+                    </div>
+                    <button class="btn btn-primary" id="userSubmit" onclick="submitUser()" disabled>
+                        <i data-lucide="play" class="lucide-icon icon-sm"></i> 总结选中
+                    </button>
                 </div>
                 <div class="main-body">
                     <div class="card">
@@ -118,18 +136,23 @@
                         </div>
                         <div class="input-row">
                             <div class="form-group">
-                                <label>视频数量</label>
-                                <input class="input" id="userCount" type="number" value="50">
+                                <label>每页数量</label>
+                                <input class="input" id="userCount" type="number" value="20" min="1" max="50">
                             </div>
                             <div class="form-group">
-                                <label>并发数</label>
-                                <input class="input" id="userConcurrency" type="number" value="12">
+                                <label>保存到</label>
+                                <select class="input" id="userFolderSelect"></select>
                             </div>
                         </div>
-                        <button class="btn btn-primary" id="userSubmit" onclick="submitUser()">
-                            <i data-lucide="play" class="lucide-icon icon-sm"></i> 开始总结
-                        </button>
+                        <div class="generation-actions">
+                            <button class="btn btn-secondary" id="userLoadBtn" onclick="loadUserVideos(1)">
+                                <i data-lucide="search" class="lucide-icon icon-sm"></i> 加载视频
+                            </button>
+                        </div>
                     </div>
+                    <div class="user-selection-toolbar" id="userSelectionToolbar"></div>
+                    <div class="video-grid" id="userVideoGrid"></div>
+                    <div class="task-log-pagination user-pagination" id="userPagination"></div>
                     <div class="progress-area" id="userProgress">
                         <div class="card">
                             <div class="card-title"><i data-lucide="bar-chart-3" class="lucide-icon icon-md"></i> 进度</div>
@@ -186,17 +209,22 @@
                 <div class="main-header" id="browseHeader">
                     <div class="browse-header-row">
                         <div>
-                            <h2 id="browseTitle"><i data-lucide="book-open" class="lucide-icon"></i> 浏览总结</h2>
+                            <h2 id="browseTitle"><i data-lucide="library" class="lucide-icon"></i> 所有视频</h2>
                             <p id="browseSubtitle">选择左侧分类查看</p>
                         </div>
-                        <div class="browse-view-toggle" id="browseViewToggle">
-                            <button class="browse-view-btn active" data-view="thumb" data-tip="缩略图视图" aria-label="缩略图视图" onclick="setBrowseViewMode('thumb', this)">
-                                <i data-lucide="layout-grid" class="lucide-icon icon-sm"></i>
-                                <span class="visually-hidden">缩略图视图</span>
-                            </button>
-                            <button class="browse-view-btn" data-view="compact" data-tip="紧凑列表视图" aria-label="紧凑列表视图" onclick="setBrowseViewMode('compact', this)">
-                                <i data-lucide="list" class="lucide-icon icon-sm"></i>
-                                <span class="visually-hidden">紧凑列表视图</span>
+                        <div class="browse-header-actions" id="browseHeaderActions">
+                            <div class="browse-view-toggle" id="browseViewToggle">
+                                <button class="browse-view-btn active" data-view="thumb" data-tip="缩略图视图" aria-label="缩略图视图" onclick="setBrowseViewMode('thumb', this)">
+                                    <i data-lucide="layout-grid" class="lucide-icon icon-sm"></i>
+                                    <span class="visually-hidden">缩略图视图</span>
+                                </button>
+                                <button class="browse-view-btn" data-view="compact" data-tip="紧凑列表视图" aria-label="紧凑列表视图" onclick="setBrowseViewMode('compact', this)">
+                                    <i data-lucide="list" class="lucide-icon icon-sm"></i>
+                                    <span class="visually-hidden">紧凑列表视图</span>
+                                </button>
+                            </div>
+                            <button class="btn btn-secondary btn-secondary-compact" id="browseEditBtn" type="button" onclick="enterBrowseSelectionMode()">
+                                <i data-lucide="pencil" class="lucide-icon icon-xs"></i> 编辑
                             </button>
                         </div>
                     </div>
@@ -225,7 +253,7 @@
                         <div class="form-group">
                             <label>API Base URL</label>
                             <input class="input" id="settingsBaseUrl"
-                                placeholder="https://open.bigmodel.cn/api/anthropic">
+                                placeholder="tp-key 用 https://token-plan-cn.xiaomimimo.com/anthropic">
                         </div>
                         <div class="form-group">
                             <label>API Token</label>
@@ -238,24 +266,133 @@
                         </div>
                         <div class="form-group">
                             <label>默认模型</label>
-                            <input class="input" id="settingsModel" placeholder="手动输入模型名称，或从下方列表选择">
+                            <input class="input" id="settingsModel" placeholder="mimo-v2.5-pro">
                         </div>
-                        <button class="btn btn-primary mt-2" onclick="saveSettings()">
+                        <div class="form-group">
+                            <label>任务并发数</label>
+                            <input class="input" id="settingsTaskConcurrency" type="number" min="1" max="20" placeholder="1-20">
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title"><i data-lucide="captions" class="lucide-icon icon-md"></i> 字幕识别</div>
+                        <div class="form-group">
+                            <label>识别模式</label>
+                            <select class="input" id="settingsAsrMode" onchange="updateAsrSettingsVisibility()">
+                                <option value="local">本地</option>
+                                <option value="bailian">百炼</option>
+                            </select>
+                        </div>
+                        <div class="settings-mode-panel" id="settingsLocalAsrPanel">
+                            <div class="form-group">
+                                <label>本地 Whisper 模型</label>
+                                <input class="input" id="settingsWhisperModel" placeholder="whisper-tiny、tiny 或本地模型目录">
+                            </div>
+                            <div class="form-group">
+                                <label>Whisper 设备</label>
+                                <input class="input" id="settingsWhisperDevice" placeholder="auto、cpu 或 cuda">
+                            </div>
+                            <div class="form-group">
+                                <label>Whisper 计算类型</label>
+                                <input class="input" id="settingsWhisperComputeType" placeholder="default、int8 或 float16">
+                            </div>
+                        </div>
+                        <div class="settings-mode-panel" id="settingsBailianAsrPanel">
+                            <div class="form-group">
+                                <label>百炼 API Key</label>
+                                <div class="settings-token-row">
+                                    <input class="input settings-token-input" id="settingsBailianApiKey" type="password" placeholder="输入百炼 API Key">
+                                    <button class="btn btn-secondary btn-secondary-compact" onclick="toggleBailianTokenVisibility()" id="toggleBailianTokenBtn">
+                                        <i data-lucide="eye" class="lucide-icon icon-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>百炼 ASR 模型</label>
+                                <input class="input" id="settingsBailianAsrModel" placeholder="qwen3-asr-flash-filetrans">
+                            </div>
+                            <div class="form-group">
+                                <label>DashScope API Base URL</label>
+                                <input class="input" id="settingsBailianAsrBaseUrl" placeholder="https://dashscope.aliyuncs.com/api/v1">
+                            </div>
+                            <div class="form-group">
+                                <label>语言代码</label>
+                                <input class="input" id="settingsBailianAsrLanguage" placeholder="留空自动识别；中文可填 zh">
+                            </div>
+                            <div class="form-group">
+                                <label>Cloudflare R2 Account ID</label>
+                                <input class="input" id="settingsCloudflareR2AccountId" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                            </div>
+                            <div class="form-group">
+                                <label>Cloudflare R2 S3 API Endpoint</label>
+                                <input class="input" id="settingsCloudflareR2EndpointUrl" placeholder="https://<account_id>.r2.cloudflarestorage.com">
+                                <div class="settings-hint">留空时使用 Account ID 自动生成。这里是上传端点，不是给百炼读取的公网地址。</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Cloudflare R2 Bucket</label>
+                                <input class="input" id="settingsCloudflareR2Bucket" placeholder="bucket-name">
+                            </div>
+                            <div class="form-group">
+                                <label>Cloudflare R2 Access Key ID</label>
+                                <input class="input" id="settingsCloudflareR2AccessKeyId" placeholder="R2 Token Access Key ID">
+                            </div>
+                            <div class="form-group">
+                                <label>Cloudflare R2 Secret Access Key</label>
+                                <div class="settings-token-row">
+                                    <input class="input settings-token-input" id="settingsCloudflareR2SecretAccessKey" type="password" placeholder="输入 R2 Secret Access Key">
+                                    <button class="btn btn-secondary btn-secondary-compact" onclick="toggleR2SecretVisibility()" id="toggleR2SecretBtn">
+                                        <i data-lucide="eye" class="lucide-icon icon-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Cloudflare R2 Public Base URL</label>
+                                <input class="input" id="settingsCloudflareR2PublicBaseUrl" placeholder="https://pub-xxx.r2.dev 或自定义域名">
+                                <div class="settings-hint">百炼会通过这个公网地址读取已上传音频，Bucket 需要允许对应对象被公网访问。</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Cloudflare R2 对象前缀</label>
+                                <input class="input" id="settingsCloudflareR2KeyPrefix" placeholder="bilibili-summary/asr">
+                            </div>
+                            <div class="form-group">
+                                <label class="settings-checkbox-label">
+                                    <input id="settingsCloudflareR2DeleteAfterUse" type="checkbox" checked>
+                                    转录完成后删除 R2 临时音频
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title"><i data-lucide="send" class="lucide-icon icon-md"></i> Telegram 机器人</div>
+                        <div class="form-group">
+                            <label class="settings-checkbox-label">
+                                <input id="settingsTelegramEnabled" type="checkbox">
+                                启用 Telegram Bot 轮询
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>Bot Token</label>
+                            <div class="settings-token-row">
+                                <input class="input settings-token-input" id="settingsTelegramToken" type="password" placeholder="输入 Bot Token">
+                                <button class="btn btn-secondary btn-secondary-compact" onclick="toggleTelegramTokenVisibility()" id="toggleTelegramTokenBtn">
+                                    <i data-lucide="eye" class="lucide-icon icon-sm"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>允许的 Telegram 用户 ID</label>
+                            <input class="input" id="settingsTelegramAllowedUsers" placeholder="多个 ID 用英文逗号分隔，留空表示不限制">
+                        </div>
+                        <div class="form-group">
+                            <label>保存到文件夹</label>
+                            <input class="input" id="settingsTelegramOutputFolder" placeholder="默认文件夹">
+                        </div>
+                        <div class="settings-hint" id="settingsTelegramStatus"></div>
+                    </div>
+                    <div class="settings-save-panel">
+                        <button class="btn btn-primary" onclick="saveSettings()">
                             <i data-lucide="save" class="lucide-icon icon-sm"></i> 保存配置
                         </button>
                         <div id="settingsSaveStatus" class="settings-save-status"></div>
-                    </div>
-                    <div class="card mt-4">
-                        <div class="card-header-inline">
-                            <div class="card-title card-title-tight"><i data-lucide="cpu" class="lucide-icon icon-md"></i> 可用模型</div>
-                            <button class="btn btn-secondary btn-secondary-xs" onclick="loadModels()">
-                                <i data-lucide="refresh-cw" class="lucide-icon icon-xs"></i>
-                                刷新列表
-                            </button>
-                        </div>
-                        <div id="modelList" class="mt-3">
-                            <p class="text-muted-md">点击「刷新列表」获取可用模型</p>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -278,6 +415,8 @@
         </div>
     </div>
 
+    <script src="/static/vendor/marked.umd.js"></script>
+    <script src="/static/vendor/purify.min.js"></script>
     <script src="/static/app.js"></script>
     <script>
         // Initialize Lucide icons after DOM & app.js loaded
