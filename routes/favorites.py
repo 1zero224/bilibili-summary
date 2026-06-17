@@ -4,6 +4,7 @@ Favorites Browser API routes.
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from pathlib import Path
 
 from bilibili_api import video, user as bili_user, favorite_list
 
@@ -11,6 +12,8 @@ from routes.deps import (
     credential, ai_client, DATA_DIR, DEFAULT_MODEL,
     send_progress, clear_retry_count,
     process_single_video, run_batch,
+    default_folder_output_subdir, resolve_folder_output_subdir,
+    get_task_concurrency, register_task,
 )
 from summarize import sanitize_filename
 from pydantic import BaseModel, Field
@@ -22,7 +25,33 @@ class SummarizeBvidsRequest(BaseModel):
     bvids: list[str] = Field(default_factory=list, min_length=1, max_length=200)
     output_subdir: str = "favorites"
     model: str = ""
-    concurrency: int = Field(default=6, ge=1, le=20)
+    concurrency: int | None = Field(default=None, ge=1, le=20)
+    modules: dict = Field(default_factory=dict)
+    folder: str = ""
+
+
+def _summary_status_for_title(title: str) -> dict:
+    safe_title = sanitize_filename(title)
+    summary_root = DATA_DIR / "summary"
+    candidates: list[Path] = []
+    if summary_root.exists():
+        candidates.extend(summary_root.rglob(f"{safe_title}.md"))
+
+    for path in sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True):
+        if path.name.endswith(".detailed.md") or path.name.endswith(".mindmap.md"):
+            continue
+        try:
+            rel_path = str(path.relative_to(summary_root))
+        except ValueError:
+            continue
+        status = "no_subtitle" if "no_subtitle" in path.parts else "done"
+        return {
+            "has_summary": True,
+            "summary_status": status,
+            "summary_path": rel_path,
+        }
+
+    return {"has_summary": False, "summary_status": "none", "summary_path": None}
 
 
 @router.get("/favorites/list")
@@ -66,17 +95,7 @@ async def list_favorite_videos(fav_id: int, page: int = 1):
         for m in content.get('medias', []) or []:
             bvid = m.get('bvid', '')
             title = m.get('title', '')
-            safe_title = sanitize_filename(title)
-
-            normal_path = DATA_DIR / "summary" / "favorites" / f"{safe_title}.md"
-            nosub_path = DATA_DIR / "summary" / "favorites" / "no_subtitle" / f"{safe_title}.md"
-            has_summary = normal_path.exists()
-            has_nosub = nosub_path.exists()
-            summary_path = None
-            if has_summary:
-                summary_path = f"favorites/{safe_title}.md"
-            elif has_nosub:
-                summary_path = f"favorites/no_subtitle/{safe_title}.md"
+            status = _summary_status_for_title(title)
 
             cover = m.get('cover', '') or ''
             if isinstance(cover, str) and cover.startswith('//'):
@@ -90,9 +109,7 @@ async def list_favorite_videos(fav_id: int, page: int = 1):
                 "upper": m.get('upper', {}).get('name', ''),
                 "upper_mid": m.get('upper', {}).get('mid', 0),
                 "play_count": m.get('cnt_info', {}).get('play', 0),
-                "has_summary": has_summary or has_nosub,
-                "summary_status": 'done' if has_summary else ('no_subtitle' if has_nosub else 'none'),
-                "summary_path": summary_path,
+                **status,
             })
 
         has_more = content.get('has_more', False)
@@ -115,9 +132,20 @@ async def summarize_favorite_bvids(req: SummarizeBvidsRequest):
 
     model = req.model or DEFAULT_MODEL
     task_id = f"fav-auto-{int(time.time()*1000)}"
+    try:
+        output_subdir, folder_name = resolve_folder_output_subdir(req.folder)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    register_task(
+        task_id,
+        "favorites",
+        "收藏夹选中视频总结",
+        total=len(req.bvids),
+        meta={"bvids": req.bvids[:200], "folder": folder_name},
+    )
 
     async def _run():
-        await run_batch(req.bvids, model, req.concurrency, req.output_subdir, task_id)
+        await run_batch(req.bvids, model, get_task_concurrency(), output_subdir, task_id, modules=req.modules)
 
     asyncio.create_task(_run())
     return {"task_id": task_id}
@@ -202,7 +230,7 @@ async def retry_summarize(bvid: str, output_subdir: str = ""):
                                 detected_subdir = f"users/{uid_folder.name}"
                                 break
             if not detected_subdir:
-                detected_subdir = "standalone"
+                detected_subdir = default_folder_output_subdir()
 
         # Remove existing normal summary
         normal_path = DATA_DIR / "summary" / detected_subdir / f"{safe_title}.md"
@@ -234,4 +262,3 @@ async def retry_summarize(bvid: str, output_subdir: str = ""):
 
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
-
