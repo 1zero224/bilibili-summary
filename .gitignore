@@ -1,0 +1,24 @@
+# Virtual environment
+venv/
+
+# Environment variables (contains secrets)
+.env.local
+
+# Output files
+summary/
+ass/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Agent workflows
+.agent/

@@ -1,0 +1,9 @@
+bilibili-api-python
+anthropic
+python-dotenv
+toml
+fastapi
+uvicorn
+pywebview
+aiohttp
+av
