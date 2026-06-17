@@ -17,6 +17,7 @@ import re
 import json
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import toml
 from dotenv import load_dotenv, set_key
@@ -24,6 +25,7 @@ from bilibili_api import video, user, favorite_list, search
 from bilibili_api.utils.network import Credential
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
 import anthropic
+from routes.whisper import download_bilibili_media, transcribe_media
 
 # Path resolution (supports PyInstaller bundle)
 DATA_DIR = Path(os.environ.get('BILISUMMARY_DATA_DIR', os.path.dirname(os.path.abspath(__file__))))
@@ -43,67 +45,19 @@ def sanitize_filename(title: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', '_', title).strip()
 
 
-async def get_subtitle(v: video.Video) -> tuple[str, list]:
-    """获取视频字幕内容，返回 (纯文本, 原始字幕数据)"""
+def page_index_from_url(url: str) -> int:
+    """从 URL 查询参数中解析分P序号，返回 0-based index。"""
     try:
-        # 首先获取视频分P信息以获取 cid
-        pages = await v.get_pages()
-        if not pages:
-            print(f"  ⚠️ 无法获取视频分P信息")
-            return "", []
-        
-        # 使用第一个分P的 cid
-        cid = pages[0].get('cid')
-        if not cid:
-            print(f"  ⚠️ 无法获取 cid")
-            return "", []
-        
-        # 获取字幕列表
-        player_info = await v.get_player_info(cid=cid)
-        subtitle_info = player_info.get('subtitle', {})
-        
-        if not subtitle_info or not subtitle_info.get('subtitles'):
-            print(f"  ⚠️ 视频没有字幕")
-            return "", []
-        
-        # 获取第一个字幕（通常是 AI 生成的中文字幕）
-        subtitle_list = subtitle_info['subtitles']
-        subtitle_url = None
-        
-        # 优先选择中文字幕
-        for sub in subtitle_list:
-            if 'zh' in sub.get('lan', '').lower():
-                subtitle_url = sub.get('subtitle_url', '')
-                break
-        
-        # 如果没有中文字幕，使用第一个
-        if not subtitle_url and subtitle_list:
-            subtitle_url = subtitle_list[0].get('subtitle_url', '')
-        
-        if not subtitle_url:
-            return "", []
-        
-        # 确保 URL 包含协议
-        if subtitle_url.startswith('//'):
-            subtitle_url = 'https:' + subtitle_url
-        
-        # 下载字幕内容
-        import aiohttp
-        async with aiohttp.ClientSession() as session:
-            async with session.get(subtitle_url) as resp:
-                subtitle_data = await resp.json()
-        
-        # 提取字幕文本
-        if 'body' in subtitle_data:
-            raw_subtitles = subtitle_data['body']
-            texts = [item.get('content', '') for item in raw_subtitles]
-            return '\n'.join(texts), raw_subtitles
-        
-        return "", []
-    
-    except Exception as e:
-        print(f"  ⚠️ 获取字幕失败: {e}")
-        return "", []
+        p_values = parse_qs(urlparse(url).query).get("p")
+        if not p_values:
+            return 0
+        return max(int(p_values[0]) - 1, 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def page_url(bvid: str, page_index: int) -> str:
+    return f"https://www.bilibili.com/video/{bvid}?p={page_index + 1}"
 
 
 def format_ass_time(seconds: float) -> str:
@@ -112,6 +66,30 @@ def format_ass_time(seconds: float) -> str:
     minutes = int((seconds % 3600) // 60)
     secs = seconds % 60
     return f"{hours}:{minutes:02d}:{secs:05.2f}"
+
+
+def format_summary_time(seconds: float) -> str:
+    """将秒数转换为总结提示词使用的时间格式。"""
+    total = max(0, int(seconds or 0))
+    hours = total // 3600
+    minutes = (total % 3600) // 60
+    secs = total % 60
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def format_timestamped_transcript(segments: list[dict]) -> str:
+    """将转录片段转换为带时间段的文本，供详细总结模型引用。"""
+    lines = []
+    for segment in segments or []:
+        start = segment.get("from", segment.get("start", 0))
+        end = segment.get("to", segment.get("end", start))
+        text = (segment.get("content", segment.get("text", "")) or "").strip()
+        if not text:
+            continue
+        lines.append(f"[{format_summary_time(start)}-{format_summary_time(end)}] {text}")
+    return "\n".join(lines).strip()
 
 
 def save_ass(title: str, subtitles: list, output_subdir: str = "standalone"):
@@ -158,20 +136,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "GLM-4-FlashX-250414")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "mimo-v2.5-pro")
+
+
+def clean_env_value(value: str | None) -> str:
+    return (value or "").strip().strip("'\"")
+
+
+def _message_create_kwargs(client: anthropic.AsyncAnthropic, model: str, prompt: str) -> dict:
+    kwargs = {
+        "model": model,
+        "max_tokens": 8192,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if "xiaomimimo.com" in str(getattr(client, "base_url", "")):
+        kwargs["thinking"] = {"type": "disabled"}
+    return kwargs
 
 
 async def summarize_with_claude(subtitle: str, title: str, client: anthropic.AsyncAnthropic, model: str = None) -> tuple[str, float]:
     """使用 Claude API 生成视频总结，返回 (总结内容, 耗时秒数)"""
     model = model or DEFAULT_MODEL
     if not subtitle:
-        return "⚠️ 无法获取字幕，无法生成总结", 0.0
+        return "⚠️ 无法获取转录文本，无法生成总结", 0.0
     
-    prompt = f"""你是一个专业的视频内容分析师。请根据以下视频字幕，生成一份**全面、精细且有条理**的视频笔记。
+    prompt = f"""你是一个专业的视频内容分析师。请根据以下视频转录文本，生成一份**全面、精细且有条理**的视频笔记。
 
 视频标题: {title}
 
-字幕内容:
+转录文本:
 {subtitle[:30000]}
 
 请用中文输出，严格按照以下格式：
@@ -199,16 +192,13 @@ async def summarize_with_claude(subtitle: str, title: str, client: anthropic.Asy
     for attempt in range(max_retries):
         try:
             t_start = time.time()
-            message = await client.messages.create(
-                model=model,
-                max_tokens=8192,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
+            message = await client.messages.create(**_message_create_kwargs(client, model, prompt))
             t_end = time.time()
             duration = t_end - t_start
-            return message.content[0].text, duration
+            text = _message_text(message)
+            if not text:
+                return "⚠️ 生成总结失败: 模型未返回文本内容", duration
+            return text, duration
             
         except anthropic.RateLimitError as e:
             if attempt < max_retries - 1:
@@ -228,6 +218,52 @@ async def summarize_with_claude(subtitle: str, title: str, client: anthropic.Asy
     return "⚠️ 生成总结失败 (Unknown)", 0.0
 
 
+def _message_text(message) -> str:
+    parts = []
+    for item in getattr(message, "content", []) or []:
+        text = getattr(item, "text", "")
+        if text:
+            parts.append(text)
+        elif isinstance(item, dict) and item.get("type") == "text" and item.get("text"):
+            parts.append(item["text"])
+    return "\n".join(parts).strip()
+
+
+async def generate_detailed_summary_with_claude(
+    transcript: str,
+    title: str,
+    client: anthropic.AsyncAnthropic,
+    model: str = None,
+) -> tuple[str, float]:
+    """生成详细总结，返回 (内容, 耗时秒数)。"""
+    model = model or DEFAULT_MODEL
+    if not transcript:
+        return "⚠️ 无法获取转录文本，无法生成详细总结", 0.0
+
+    prompt = f"""请基于以下视频转录文本生成一份详细总结。
+
+视频标题: {title}
+
+转录文本:
+{transcript[:30000]}
+
+要求：
+1. 使用 Markdown 输出。
+2. 只输出详细总结，不要输出简短摘要、核心观点列表或无时间信息的总结。
+3. 必须按时间段整理内容，每个时间段使用一行二级标题，格式严格为：## [[时间段: 起始时间-结束时间]] 标题。
+4. 起始时间和结束时间必须来自转录内容对应的视频时间，使用 M:SS 或 H:MM:SS 格式；示例：## [[时间段: 0:00-3:25]] 开场与问题背景。
+5. 每个时间段下说明该段主要内容、关键观点、论证脉络和重要细节，不遗漏关键事实、数据、人物和结论。
+6. 如果该时间段包含行动建议或决策依据，请放在对应时间段下，不要单独脱离时间段输出。
+"""
+
+    try:
+        t_start = time.time()
+        message = await client.messages.create(**_message_create_kwargs(client, model, prompt))
+        return _message_text(message), time.time() - t_start
+    except Exception as e:
+        return f"⚠️ 生成详细总结失败: {e}", 0.0
+
+
 def save_summary(
     title: str,
     bvid: str,
@@ -238,6 +274,7 @@ def save_summary(
     author_name: str = "",
     author_uid: int = 0,
     cover_url: str = "",
+    media_path: str = "",
 ):
     """保存总结到 markdown 文件"""
     # 创建 summary 目录
@@ -267,7 +304,7 @@ def save_summary(
     content = f"""# {title}
 
 **BV号**: {bvid}
-**视频链接**: https://www.bilibili.com/video/{bvid}
+**视频链接**: {url or f"https://www.bilibili.com/video/{bvid}"}
 {author_line}**时长**: {duration_str}
 **生成时间**: {generated_at}
 
@@ -288,6 +325,7 @@ def save_summary(
         "author_name": author_name,
         "author_uid": author_uid,
         "cover_url": cover_url,
+        "media_path": media_path,
         "generated_at": generated_at,
     }
     meta_path.write_text(json.dumps(meta_payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -300,23 +338,39 @@ async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: 
         # 提取 BV 号
         bvid = extract_bvid(url)
         print(f"\n🎬 处理视频: {bvid}")
+        page_index = page_index_from_url(url)
         
-        # 创建 Video 对象（带登录凭证以获取字幕）
+        # 创建 Video 对象（带登录凭证以获取音频流）
         v = video.Video(bvid=bvid, credential=credential)
         
         # 获取视频信息
         info = await v.get_info()
-        title = info.get('title', bvid)
+        base_title = info.get('title', bvid)
+        title = base_title
         duration = info.get('duration', 0)
         cover_url = info.get('pic', '')
         owner = info.get('owner', {})
         author_name = owner.get('name', '')
         author_uid = owner.get('mid', 0)
+        pages = await v.get_pages()
+        if page_index >= len(pages):
+            print(f"  ❌ 分P序号超出范围: P{page_index + 1}/{len(pages)}")
+            return
+        if len(pages) > 1:
+            page = pages[page_index]
+            part = (page.get('part') or '').strip()
+            title = f"{base_title} - P{page_index + 1}"
+            if part:
+                title = f"{title} {part}"
+            duration = page.get('duration') or duration
+            url = page_url(bvid, page_index)
+        else:
+            url = f"https://www.bilibili.com/video/{bvid}"
+        safe_title = sanitize_filename(title)
         
         # 检查总结文件是否已存在 (benchmark 模式不跳过)
         if not benchmark:
             summary_dir = DATA_DIR / "summary" / output_subdir
-            safe_title = sanitize_filename(title)
             summary_path = summary_dir / f"{safe_title}.md"
             
             if summary_path.exists():
@@ -325,9 +379,27 @@ async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: 
 
         print(f"  📌 标题: {title}")
         
-        # 获取字幕
-        print(f"  📝 获取字幕...")
-        subtitle_text, subtitle_raw = await get_subtitle(v)
+        # 语音识别
+        media_rel_path = f"{output_subdir}/{safe_title}.mp4"
+        media_path = DATA_DIR / "media" / media_rel_path
+        print(f"  🎞️ 下载本地视频...")
+        await download_bilibili_media(url, media_path, expected_duration=duration)
+
+        print(f"  📝 语音识别...")
+
+        async def report_transcription_step(step: str):
+            print(f"  · {step}")
+
+        subtitle_text, subtitle_raw = await transcribe_media(
+            media_path,
+            duration=duration,
+            progress=report_transcription_step,
+            source_url=url,
+            bvid=bvid,
+            title=title,
+            output_subdir=output_subdir,
+            media_rel_path=media_rel_path,
+        )
         
         # 保存 ASS 字幕文件
         save_ass(title, subtitle_raw, output_subdir)
@@ -353,15 +425,13 @@ async def process_video(url: str, client: anthropic.AsyncAnthropic, credential: 
         summary, duration_sec = await summarize_with_claude(subtitle_text, title, client, model=target_model)
         print(f"    ⏱️  耗时: {duration_sec:.2f}s")
         
-        # Determine output directory
         final_output_subdir = output_subdir
-        if not subtitle_text:
-            final_output_subdir = f"{output_subdir}/no_subtitle"
         
         # 保存
         save_summary(
             title, bvid, url, duration, summary, final_output_subdir,
-            author_name=author_name, author_uid=author_uid, cover_url=cover_url
+            author_name=author_name, author_uid=author_uid, cover_url=cover_url,
+            media_path=media_rel_path,
         )
         
     except Exception as e:
@@ -563,13 +633,15 @@ async def main():
         credential = Credential(sessdata=sessdata, bili_jct=bili_jct)
         print("✅ 已加载 Bilibili 登录凭证")
     else:
-        print("⚠️ 未配置 BILIBILI_SESSION_TOKEN，可能无法获取字幕")
+        print("⚠️ 未配置 BILIBILI_SESSION_TOKEN，部分视频可能无法获取音频流")
     
     # 初始化 Anthropic 客户端
-    client = anthropic.AsyncAnthropic(
-        base_url=os.getenv('ANTHROPIC_BASE_URL'),
-        api_key=os.getenv('ANTHROPIC_AUTH_TOKEN')
-    )
+    base_url = clean_env_value(os.getenv('ANTHROPIC_BASE_URL'))
+    auth_token = clean_env_value(os.getenv('ANTHROPIC_AUTH_TOKEN')) or clean_env_value(os.getenv('MIMO_API_KEY'))
+    if 'xiaomimimo.com' in base_url:
+        client = anthropic.AsyncAnthropic(base_url=base_url, auth_token=auth_token)
+    else:
+        client = anthropic.AsyncAnthropic(base_url=base_url, api_key=auth_token)
     
     # 初始化信号量
     concurrency = 1 if args.benchmark else args.concurrency  # Benchmark 模式下强制串行
