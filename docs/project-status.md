@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: February 15, 2026
+Last updated: June 16, 2026
 
 ## What Is Implemented
 
@@ -25,6 +25,53 @@ Last updated: February 15, 2026
   - `processing`, `success`, `failed`, `no_subtitle`, `skipped`, `pending`
 - Inline style cleanup:
   - Main UI sizing/spacing moved to tokenized classes
+- Telegram bot integration:
+  - Settings page supports Bot Token, allowed user IDs, enable switch, and output folder
+  - Bot accepts one or multiple Bilibili links and mirrors task progress/errors back to Telegram
+  - Unrelated Telegram messages receive the command guide
+- Bilibili media download:
+  - Replaced yutto CLI invocation with in-process playurl parsing, concurrent range downloads, FFmpeg muxing, and atomic media replacement
+  - Download tasks use per-output locks plus global task/chunk limits for batch concurrency safety
+- ASR (Automatic Speech Recognition):
+  - Local Whisper transcription via faster-whisper
+  - Alibaba Cloud Bailian (DashScope) cloud ASR with R2 storage integration
+  - Unified ASR entry point with mode switching (local/bailian)
+- Folder management:
+  - Create/delete folders, move summaries between folders
+  - Cascade delete/move of associated files (media, subtitles, detailed summaries)
+  - Default folder system replacing hardcoded output directories
+- Task logging:
+  - Persistent task log system with status tracking (queued/running/done/failed)
+  - Task detail modal with event timeline and progress
+  - Auto-reload incomplete tasks as failed on restart
+- Detailed summary generation:
+  - Timestamped Markdown summaries with [[M:SS-H:MM:SS]] markers
+  - On-demand generation from summary detail view
+  - Modular generation config (normal + detailed)
+- Video detail view:
+  - Dual-pane layout: local video player + subtitle/detailed summary tabs
+  - Clickable subtitle timestamps for video seeking
+  - Draggable panel divider with persistence
+- UP主 mode redesign:
+  - Paginated video grid browsing
+  - Selective video submission with checkbox selection
+  - Per-video summary status indicators
+- Browse batch operations:
+  - Edit mode with multi-select checkboxes
+  - Batch move to folder and batch delete
+- Markdown rendering:
+  - Upgraded to marked.js + DOMPurify for GFM support
+  - Timestamp link conversion to clickable buttons
+- Settings expansion:
+  - ASR mode, Whisper, Bailian, R2 storage, Telegram bot, task concurrency
+  - MIMO platform auto-detection and API adaptation
+  - Hot-reload on settings save
+- Sidebar:
+  - Collapsible with localStorage persistence
+  - Folder-based browse navigation
+- Channel/collection support:
+  - Auto-detect season_id/series_id URLs
+  - Auto-expand single BV to multi-part URLs
 
 ## Current UX Baseline
 

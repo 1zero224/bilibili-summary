@@ -7,3 +7,4 @@ uvicorn
 pywebview
 aiohttp
 av
+faster-whisper
