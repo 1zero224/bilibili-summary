@@ -1,16 +1,20 @@
 # Virtual environment
 venv/
+.venv/
 
 # Environment variables (contains secrets)
 .env.local
+.env
 
 # Output files
 summary/
 ass/
+media/
 
 # Python
 __pycache__/
 *.pyc
+*.pyo
 
 # macOS
 .DS_Store
@@ -22,3 +26,22 @@ dist/
 
 # Agent workflows
 .agent/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Task logs (runtime generated)
+task_logs.json
+
+# Third-party tools (not vendored)
+BilibiliDown/
+bilibili-video-downloader/
+biliup/
+yutto/
+
+# Whisper models
+models/
+
+# Logs
+*.log
+console-r2-check.log

@@ -52,11 +52,17 @@ hiddenimports = [
 # Add bilibili_api submodules
 hiddenimports += collect_submodules('bilibili_api')
 hiddenimports += collect_submodules('av')
+hiddenimports += collect_submodules('faster_whisper')
+hiddenimports += collect_submodules('ctranslate2')
 
 a = Analysis(
     ['app.py'],
     pathex=[],
-    binaries=collect_dynamic_libs('av'),
+    binaries=(
+        collect_dynamic_libs('av')
+        + collect_dynamic_libs('ctranslate2')
+        + collect_dynamic_libs('onnxruntime')
+    ),
     datas=[
         ('static', 'static'),           # Bundle static/ directory
         ('config.toml', '.'),            # Bundle config.toml
