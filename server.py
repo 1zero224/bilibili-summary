@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -50,6 +51,8 @@ from routes.auth import router as auth_router
 from routes.telegram_bot import telegram_bot_service
 from routes.whisper import download_bilibili_media
 from routes.bilibili_downloader import USER_AGENT as BILI_USER_AGENT, REFERER as BILI_REFERER
+from routes.v2 import router as v2_router
+from routes.v2.auth import get_api_token, request_token, token_ok
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +63,12 @@ async def lifespan(app: FastAPI):
     init_credential()
     init_ai_client()
     load_task_logs()
+    token = get_api_token()
+    if AUTH_ENFORCE:
+        print(f"🔐 API 令牌鉴权已启用，令牌文件: {os.path.join(deps.DATA_DIR, '.api_token')}")
+    else:
+        print("🔓 API 令牌鉴权未启用（BILISUMMARY_AUTH=0）：仅建议在本机 127.0.0.1 使用。")
+    print(f"🔑 X-BS-Token: {token[:6]}…{token[-4:]}")
     await telegram_bot_service.reload_from_env()
     try:
         yield
@@ -78,6 +87,75 @@ app.include_router(favorites_router)
 app.include_router(asr_router)
 app.include_router(settings_router)
 app.include_router(auth_router)
+app.include_router(v2_router)
+
+
+# ---------------------------------------------------------------------------
+# 插件接入：/api/v2 + 令牌鉴权 + CORS
+# ---------------------------------------------------------------------------
+AUTH_ENFORCE = os.getenv("BILISUMMARY_AUTH", "0").strip().lower() in {"1", "true", "yes", "on"}
+# /api/status 只回 {logged_in, ai_configured}，保留公开以便 Docker HEALTHCHECK 与探活
+AUTH_PUBLIC_PATHS = {"/", "/history", "/favicon.ico", "/api/status", "/api/v2/health"}
+
+
+def _maybe_set_token_cookie(request: Request, response) -> None:
+    """用 `?token=` 首次访问时为 Web UI 种 Cookie，之后同源页面无需再带参数。"""
+    candidate = request.query_params.get("token")
+    if not candidate or not token_ok(candidate):
+        return
+    try:
+        response.set_cookie(
+            "bs_token",
+            candidate,
+            max_age=30 * 24 * 3600,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+        )
+    except Exception:
+        pass
+
+
+@app.middleware("http")
+async def token_guard(request: Request, call_next):
+    """BILISUMMARY_AUTH=1 时，`/api/*` 一律要求令牌（插件用 X-BS-Token，Web UI 用 Cookie）。"""
+    if not AUTH_ENFORCE:
+        return await call_next(request)
+
+    path = request.url.path
+    if (
+        request.method == "OPTIONS"
+        or path in AUTH_PUBLIC_PATHS
+        or path.startswith("/static/")
+        or not path.startswith("/api/")
+    ):
+        response = await call_next(request)
+        _maybe_set_token_cookie(request, response)
+        return response
+
+    if token_ok(request_token(request)):
+        response = await call_next(request)
+        _maybe_set_token_cookie(request, response)
+        return response
+
+    try:
+        from routes.v2.auth import token_mismatch_detail
+
+        detail = token_mismatch_detail(request_token(request))
+    except Exception:  # noqa: BLE001
+        detail = "缺少或错误的 X-BS-Token"
+    return JSONResponse(status_code=401, content={"error": "unauthorized", "detail": detail})
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^(chrome-extension|extension)://.*$",
+    allow_origins=["http://127.0.0.1:18520", "http://localhost:18520"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    allow_credentials=False,
+    max_age=600,
+)
 
 
 # ---------------------------------------------------------------------------

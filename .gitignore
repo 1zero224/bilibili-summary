@@ -11,6 +11,7 @@ summary/
 ass/
 media/
 data/
+subtitles/
 
 # Python
 __pycache__/
@@ -50,3 +51,6 @@ console-r2-check.log
 # Local backups
 *.bak-*
 .migration-backup*/
+
+# 本地参考项目（调研用，不入库）
+.research/
