@@ -11,9 +11,9 @@ from fastapi.responses import StreamingResponse
 
 from bilibili_api.utils.network import Credential
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
-from dotenv import set_key
 
-from routes.deps import DATA_DIR
+from env_utils import set_env_key as set_key
+from routes.deps import ENV_FILE
 
 router = APIRouter(prefix="/api", tags=["auth"])
 
@@ -44,7 +44,7 @@ async def qr_login_stream():
             if state == QrCodeLoginEvents.DONE:
                 cred = login.get_credential()
                 # Save to .env.local
-                env_path = str(DATA_DIR / '.env.local')
+                env_path = str(ENV_FILE)
                 set_key(env_path, 'BILIBILI_SESSION_TOKEN', cred.sessdata)
                 set_key(env_path, 'BILIBILI_BILI_JCT', cred.bili_jct)
                 if cred.ac_time_value:
@@ -77,7 +77,7 @@ async def logout():
     """Clear credential and remove from .env.local."""
     import routes.deps as deps
     deps.credential = None
-    env_path = DATA_DIR / '.env.local'
+    env_path = ENV_FILE
     if env_path.exists():
         set_key(str(env_path), 'BILIBILI_SESSION_TOKEN', '')
         set_key(str(env_path), 'BILIBILI_BILI_JCT', '')

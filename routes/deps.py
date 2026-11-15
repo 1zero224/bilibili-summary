@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 import anthropic
 from bilibili_api import video
 from bilibili_api.utils.network import Credential
+from env_utils import get_env_file
 
 from summarize import (
     extract_bvid, save_ass, save_summary,
@@ -29,8 +30,9 @@ from routes.whisper import download_bilibili_media, transcribe_media
 # ---------------------------------------------------------------------------
 BUNDLE_DIR = Path(os.environ.get('BILISUMMARY_BUNDLE_DIR', os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 DATA_DIR = Path(os.environ.get('BILISUMMARY_DATA_DIR', os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ENV_FILE = get_env_file(DATA_DIR)
 
-load_dotenv(str(DATA_DIR / '.env.local'))
+load_dotenv(str(ENV_FILE))
 
 
 # ---------------------------------------------------------------------------

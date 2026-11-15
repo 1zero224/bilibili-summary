@@ -6,6 +6,7 @@ FastAPI 后端服务器
 
 import os
 import asyncio
+import aiohttp
 import json
 import time
 import re
@@ -16,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from bilibili_api import channel_series as bili_channel_series, user as bili_user, video as bili_video
@@ -47,6 +48,8 @@ from routes.asr import router as asr_router
 from routes.settings import router as settings_router
 from routes.auth import router as auth_router
 from routes.telegram_bot import telegram_bot_service
+from routes.whisper import download_bilibili_media
+from routes.bilibili_downloader import USER_AGENT as BILI_USER_AGENT, REFERER as BILI_REFERER
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +92,10 @@ def _request_model_dict(value: BaseModel) -> dict:
     if hasattr(value, "model_dump"):
         return value.model_dump()
     return value.dict()
+
+
+class MediaDownloadRequest(BaseModel):
+    path: str
 
 
 class SummarizeURLRequest(BaseModel):
@@ -1054,6 +1061,307 @@ async def read_media(path: str):
     return FileResponse(filepath, media_type="video/mp4", filename=filepath.name)
 
 
+_media_download_tasks: dict[str, str] = {}
+
+
+@app.post("/api/media/download")
+async def download_media(req: MediaDownloadRequest):
+    """使用服务器 B 站登录态，把某个总结对应的视频缓存到本地。"""
+    filepath = _resolve_summary_file(req.path)
+    if not filepath:
+        return JSONResponse(status_code=404, content={"error": "总结不存在"})
+
+    meta = _summary_meta(filepath)
+    bvid = str(meta.get("bvid") or "").strip()
+    media_rel = str(meta.get("media_path") or "").strip()
+    if not bvid:
+        return JSONResponse(status_code=400, content={"error": "该总结缺少 BV 号"})
+    if not media_rel:
+        return JSONResponse(status_code=400, content={"error": "该总结未记录本地视频路径"})
+
+    media_root = (DATA_DIR / "media").resolve()
+    try:
+        output_path = (media_root / media_rel).resolve(strict=False)
+    except (RuntimeError, ValueError):
+        return JSONResponse(status_code=400, content={"error": "视频路径无效"})
+    if media_root not in output_path.parents:
+        return JSONResponse(status_code=400, content={"error": "视频路径越界"})
+
+    if output_path.is_file() and output_path.stat().st_size > 0:
+        return {"status": "ready", "media_url": f"/api/media/{media_rel}"}
+
+    running_id = _media_download_tasks.get(bvid)
+    if running_id:
+        detail = get_task_log_detail(running_id)
+        if detail and detail.get("status") in {"queued", "running"}:
+            return {"status": "downloading", "task_id": running_id}
+
+    task_id = f"media-{int(time.time() * 1000)}"
+    _media_download_tasks[bvid] = task_id
+    title = str(meta.get("title") or filepath.stem)
+    duration = meta.get("duration") or 0
+    target = str(meta.get("url") or f"https://www.bilibili.com/video/{bvid}")
+    register_task(
+        task_id, "media", f"缓存视频: {title}",
+        total=1, meta={"bvid": bvid, "media_path": media_rel},
+    )
+
+    async def _run_media_download():
+        try:
+            await send_progress(task_id, "start", {"total": 1, "bvid": bvid})
+
+            async def _progress(message: str):
+                await send_progress(task_id, "processing", {
+                    "title": title, "bvid": bvid,
+                    "message": message, "step": message,
+                })
+
+            await download_bilibili_media(
+                target, output_path,
+                expected_duration=duration,
+                progress=_progress,
+            )
+            await send_progress(task_id, "completed", {
+                "title": title, "bvid": bvid, "status": "success",
+            })
+            await send_progress(task_id, "done", {
+                "total": 1, "success": 1, "skipped": 0, "no_subtitle": 0, "errors": 0,
+            })
+        except Exception as exc:
+            await send_progress(task_id, "error", {
+                "title": title, "bvid": bvid, "message": str(exc),
+            })
+            await send_progress(task_id, "done", {
+                "total": 1, "success": 0, "skipped": 0, "no_subtitle": 0, "errors": 1,
+            })
+        finally:
+            _media_download_tasks.pop(bvid, None)
+
+    asyncio.create_task(_run_media_download())
+    return {"status": "downloading", "task_id": task_id}
+
+
+# ---------------------------------------------------------------------------
+# Bilibili DASH proxy (server-side credential, in-page quality switching)
+# ---------------------------------------------------------------------------
+_PLAYURL_CACHE: dict[str, tuple[float, dict]] = {}
+_PLAYURL_TTL = 1500.0
+
+
+def _xml_attr(value) -> str:
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _segment_base(stream: dict) -> tuple[str, str]:
+    sb = stream.get("SegmentBase") or stream.get("segment_base") or {}
+    init = sb.get("Initialization") or sb.get("initialization") or ""
+    index = sb.get("indexRange") or sb.get("index_range") or ""
+    return str(init), str(index)
+
+
+async def _get_playurl_data(bvid: str) -> dict:
+    now = time.time()
+    cached = _PLAYURL_CACHE.get(bvid)
+    if cached and now - cached[0] < _PLAYURL_TTL:
+        return cached[1]
+    video = bili_video.Video(bvid=bvid, credential=deps.credential)
+    data = await video.get_download_url(0)
+    _PLAYURL_CACHE[bvid] = (now, data)
+    return data
+
+
+def _build_dash_mpd(bvid: str, data: dict) -> str:
+    dash = data.get("dash") or {}
+    try:
+        duration = max(0.001, float(data.get("timelength") or 0) / 1000.0)
+    except (TypeError, ValueError):
+        duration = 0.001
+
+    videos: dict[int, dict] = {}
+    fallback_videos: dict[int, dict] = {}
+    for stream in dash.get("video") or []:
+        try:
+            qid = int(stream.get("id") or 0)
+            codecid = int(stream.get("codecid") or 0)
+        except (TypeError, ValueError):
+            continue
+        if qid <= 0 or not stream.get("baseUrl"):
+            continue
+        init, index = _segment_base(stream)
+        if not init or not index:
+            continue
+        target = videos if codecid == 7 else fallback_videos
+        current = target.get(qid)
+        if not current or int(stream.get("bandwidth") or 0) > int(current.get("bandwidth") or 0):
+            target[qid] = stream
+    if not videos:
+        videos = fallback_videos
+    if not videos:
+        raise RuntimeError("没有可用的 DASH 视频流")
+
+    audio = None
+    for stream in dash.get("audio") or []:
+        if not stream.get("baseUrl"):
+            continue
+        init, index = _segment_base(stream)
+        if not init or not index:
+            continue
+        if audio is None or int(stream.get("bandwidth") or 0) > int(audio.get("bandwidth") or 0):
+            audio = stream
+
+    def representation(stream: dict, kind: str) -> str:
+        qid = int(stream.get("id") or 0)
+        codecid = int(stream.get("codecid") or 0) if kind == "video" else 0
+        init, index = _segment_base(stream)
+        attrs = [
+            f'id="{kind}-{qid}"',
+            f'bandwidth="{int(stream.get("bandwidth") or 0)}"',
+            f'codecs="{_xml_attr(stream.get("codecs") or "")}"',
+        ]
+        if kind == "video":
+            attrs.extend([
+                f'width="{int(stream.get("width") or 0)}"',
+                f'height="{int(stream.get("height") or 0)}"',
+                f'frameRate="{_xml_attr(stream.get("frameRate") or "30")}"',
+            ])
+            base = f"v/{qid}/{codecid}.m4s"
+        else:
+            base = f"a/{qid}/0.m4s"
+        return (
+            f'<Representation {" ".join(attrs)}>'
+            f'<BaseURL>{base}</BaseURL>'
+            f'<SegmentBase indexRange="{index}" indexRangeExact="true">'
+            f'<Initialization range="{init}"/>'
+            f"</SegmentBase></Representation>"
+        )
+
+    video_reps = "".join(
+        representation(videos[qid], "video") for qid in sorted(videos.keys(), reverse=True)
+    )
+    audio_xml = ""
+    if audio is not None:
+        audio_xml = (
+            '<AdaptationSet mimeType="audio/mp4" segmentAlignment="true" startWithSAP="1" '
+            'subsegmentAlignment="true" subsegmentStartsWithSAP="1">'
+            + representation(audio, "audio")
+            + "</AdaptationSet>"
+        )
+
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" '
+        'profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" '
+        f'type="static" mediaPresentationDuration="PT{duration:.3f}S" minBufferTime="PT1.5S">'
+        "<Period>"
+        '<AdaptationSet mimeType="video/mp4" segmentAlignment="true" startWithSAP="1" '
+        'subsegmentAlignment="true" subsegmentStartsWithSAP="1">'
+        f"{video_reps}</AdaptationSet>"
+        f"{audio_xml}"
+        "</Period></MPD>"
+    )
+
+
+@app.get("/api/play/{bvid}/manifest.mpd")
+async def play_manifest(bvid: str):
+    if not re.fullmatch(r"BV[0-9A-Za-z]+", bvid):
+        return JSONResponse(status_code=400, content={"error": "BV 号无效"})
+    try:
+        data = await _get_playurl_data(bvid)
+        mpd = _build_dash_mpd(bvid, data)
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"error": f"获取播放地址失败: {exc}"})
+    return Response(
+        content=mpd,
+        media_type="application/dash+xml",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.api_route("/api/play/{bvid}/{kind}/{qid}/{codecid}.m4s", methods=["GET", "HEAD"])
+async def play_stream(bvid: str, kind: str, qid: int, codecid: int, request: Request):
+    if not re.fullmatch(r"BV[0-9A-Za-z]+", bvid) or kind not in {"v", "a"}:
+        return JSONResponse(status_code=400, content={"error": "播放参数无效"})
+    try:
+        data = await _get_playurl_data(bvid)
+    except Exception as exc:
+        return JSONResponse(status_code=502, content={"error": f"获取播放地址失败: {exc}"})
+
+    dash = data.get("dash") or {}
+    streams = dash.get("video" if kind == "v" else "audio") or []
+    candidates = []
+    for stream in streams:
+        try:
+            if int(stream.get("id") or 0) != qid:
+                continue
+            if kind == "v" and int(stream.get("codecid") or 0) != codecid:
+                continue
+        except (TypeError, ValueError):
+            continue
+        for url in [stream.get("baseUrl"), *(stream.get("backupUrl") or [])]:
+            if url:
+                candidates.append(str(url))
+    if not candidates:
+        return JSONResponse(status_code=404, content={"error": "媒体流不存在"})
+
+    headers = {"User-Agent": BILI_USER_AGENT, "Referer": BILI_REFERER}
+    range_header = request.headers.get("range")
+    if range_header:
+        headers["Range"] = range_header
+
+    session = aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=None, sock_connect=20, sock_read=60)
+    )
+    upstream = None
+    last_error = ""
+    try:
+        for url in candidates:
+            try:
+                upstream = await session.get(url, headers=headers, allow_redirects=True)
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+            if upstream.status < 400:
+                break
+            last_error = f"HTTP {upstream.status}"
+            await upstream.release()
+            upstream = None
+        if upstream is None:
+            await session.close()
+            return JSONResponse(status_code=502, content={"error": f"上游媒体请求失败: {last_error}"})
+    except Exception:
+        await session.close()
+        raise
+
+    response_headers = {}
+    for name in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"):
+        value = upstream.headers.get(name)
+        if value:
+            response_headers[name] = value
+    response_headers.setdefault("Accept-Ranges", "bytes")
+
+    if request.method == "HEAD":
+        status = upstream.status
+        await upstream.release()
+        await session.close()
+        return Response(status_code=status, headers=response_headers)
+
+    async def body():
+        try:
+            async for chunk in upstream.content.iter_chunked(65536):
+                yield chunk
+        finally:
+            await upstream.release()
+            await session.close()
+
+    return StreamingResponse(body(), status_code=upstream.status, headers=response_headers)
+
+
 @app.get("/api/tasks")
 async def list_tasks(type: str = "", page: int = 1, page_size: int = 10):
     return list_task_logs(task_type=type, page=page, page_size=page_size)
@@ -1309,4 +1617,11 @@ async def progress_stream(task_id: str, request: Request):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=18520)
+
+    host = os.getenv("HOST", "127.0.0.1")
+    try:
+        port = int(os.getenv("PORT", "18520"))
+    except ValueError:
+        port = 18520
+
+    uvicorn.run(app, host=host, port=port)

@@ -1271,9 +1271,18 @@ function renderSummaryDetail(data, {
             </video>
         `
         : `
-            <div class="summary-video-placeholder">
-                <i data-lucide="video-off" class="lucide-icon"></i>
-                <span>本地视频文件不存在</span>
+            <div class="summary-media-fallback">
+                <div class="summary-media-fallback-title">
+                    <i data-lucide="play-circle" class="lucide-icon"></i>
+                    <span>选择播放方式</span>
+                </div>
+                <p class="summary-media-fallback-desc">在线播放由服务器代理 B 站 DASH 流，使用服务器登录态，支持站内切换清晰度；缓存到本地会下载完整视频，可离线播放并精确跳转。</p>
+                <div class="summary-media-fallback-actions">
+                    <button class="btn btn-secondary" type="button" data-action="embed-bili" ${bvid ? '' : 'disabled'}>在线播放（可切清晰度）</button>
+                    <button class="btn btn-primary" type="button" data-action="cache-media">缓存到本地</button>
+                    <a class="btn btn-secondary" href="/static/player.html?bvid=${encodeURIComponent(bvid)}" target="_blank" rel="noopener">独立播放页</a>
+                </div>
+                <div class="summary-media-fallback-status" data-media-status></div>
             </div>
         `;
 
@@ -1328,6 +1337,12 @@ function setupSummaryDetailInteractions(container) {
             return;
         }
 
+        const embedBtn = e.target.closest('[data-action="embed-bili"]');
+        if (embedBtn) { startBiliEmbed(layout); return; }
+
+        const cacheBtn = e.target.closest('[data-action="cache-media"]');
+        if (cacheBtn) { startMediaCache(layout, cacheBtn); return; }
+
         const subtitleRow = e.target.closest('.subtitle-row');
         if (subtitleRow) {
             const start = Number(subtitleRow.dataset.start || 0);
@@ -1349,6 +1364,146 @@ function setupSummaryDetailInteractions(container) {
     if (typeof lucide !== 'undefined') {
         lucide.createIcons({ nodes: [layout] });
     }
+}
+
+function startBiliEmbed(layout) {
+    const bvid = layout.dataset.bvid || '';
+    const shell = layout.querySelector('.summary-video-shell');
+    if (!bvid || !shell) return;
+    if (typeof dashjs === 'undefined') {
+        const statusEl = layout.querySelector('[data-media-status]');
+        if (statusEl) {
+            statusEl.textContent = '播放器脚本加载失败，请改用“缓存到本地”';
+            statusEl.classList.add('is-error');
+        }
+        return;
+    }
+    shell.innerHTML = '<video class="summary-video-player" id="summaryVideoPlayer" controls preload="metadata"></video>';
+    const video = shell.querySelector('video');
+    const player = dashjs.MediaPlayer().create();
+    setupDashQualityBar(layout, player);
+    player.initialize(video, `/api/play/${encodeURIComponent(bvid)}/manifest.mpd`, false);
+    player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true } } } });
+    player.on(dashjs.MediaPlayer.events.ERROR, () => {
+        const statusEl = layout.querySelector('[data-media-status]');
+        if (statusEl) {
+            statusEl.textContent = '在线播放失败，可改用“缓存到本地”';
+            statusEl.classList.add('is-error');
+        }
+    });
+}
+
+function setupDashQualityBar(layout, player) {
+    const panel = layout.querySelector('.summary-media-panel');
+    const shell = layout.querySelector('.summary-video-shell');
+    if (!panel || !shell) return;
+    let bar = panel.querySelector('.summary-media-toolbar');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'summary-media-toolbar';
+        panel.insertBefore(bar, shell.nextSibling);
+    }
+    const select = document.createElement('select');
+    select.className = 'summary-quality-select';
+    select.innerHTML = '<option value="-1">自动清晰度</option>';
+    const cacheBtn = document.createElement('button');
+    cacheBtn.type = 'button';
+    cacheBtn.className = 'btn btn-primary btn-compact';
+    cacheBtn.textContent = '缓存到本地';
+    cacheBtn.dataset.action = 'cache-media';
+    const standalone = document.createElement('a');
+    standalone.className = 'btn btn-secondary btn-compact';
+    standalone.textContent = '独立播放页';
+    standalone.href = `/static/player.html?bvid=${encodeURIComponent(layout.dataset.bvid || '')}`;
+    standalone.target = '_blank';
+    standalone.rel = 'noopener';
+    const status = document.createElement('span');
+    status.className = 'summary-media-fallback-status';
+    status.dataset.mediaStatus = '';
+    bar.replaceChildren(select, cacheBtn, standalone, status);
+
+    const populate = () => {
+        select.querySelectorAll('option:not(:first-child)').forEach(option => option.remove());
+        const list = player.getBitrateInfoListFor('video') || [];
+        const seen = new Set();
+        list.forEach((info) => {
+            const index = Number(info.qualityIndex);
+            if (!Number.isFinite(index) || seen.has(index)) return;
+            seen.add(index);
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = `${info.height ? info.height + 'P' : '清晰度 ' + (index + 1)} · ${Math.round((info.bitrate || 0) / 1000)} kbps`;
+            select.appendChild(option);
+        });
+    };
+    player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, populate);
+    select.addEventListener('change', () => {
+        const value = Number(select.value);
+        if (value < 0) {
+            player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true } } } });
+            return;
+        }
+        player.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } });
+        player.setQualityFor('video', value, true);
+    });
+}
+
+async function startMediaCache(layout, button) {
+    const statusEl = layout.querySelector('[data-media-status]');
+    const summaryPath = decodePath(layout.dataset.path || '');
+    const actionButtons = layout.querySelectorAll('[data-action]');
+    actionButtons.forEach(el => { el.disabled = true; });
+    if (statusEl) {
+        statusEl.textContent = '正在提交下载任务…';
+        statusEl.classList.remove('is-error');
+    }
+    try {
+        const res = await fetch('/api/media/download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: summaryPath }),
+        });
+        const payload = await res.json();
+        if (!res.ok || payload.error) throw new Error(payload.error || `HTTP ${res.status}`);
+        if (payload.status === 'ready' && payload.media_url) {
+            await openSummary(layout.dataset.path);
+            return;
+        }
+        if (!payload.task_id) throw new Error('未返回下载任务 ID');
+        await pollMediaTask(layout, payload.task_id, statusEl);
+    } catch (err) {
+        if (statusEl) {
+            statusEl.textContent = '下载失败: ' + err.message;
+            statusEl.classList.add('is-error');
+        }
+        actionButtons.forEach(el => { el.disabled = false; });
+    }
+}
+
+async function pollMediaTask(layout, taskId, statusEl) {
+    const deadline = Date.now() + 45 * 60 * 1000;
+    while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
+        const task = await res.json();
+        if (!res.ok) throw new Error(task.error || `HTTP ${res.status}`);
+        const events = Array.isArray(task.events) ? task.events : [];
+        const last = events[events.length - 1];
+        if (statusEl && last?.message) statusEl.textContent = last.message;
+        if (task.status === 'done') {
+            if ((task.success || 0) > 0) {
+                await openSummary(layout.dataset.path);
+                return;
+            }
+            const errEvent = [...events].reverse().find(ev => ev.event === 'error');
+            throw new Error(errEvent?.message || '视频下载失败');
+        }
+        if (task.status === 'failed') {
+            const errEvent = [...events].reverse().find(ev => ev.event === 'error');
+            throw new Error(errEvent?.message || '视频下载失败');
+        }
+    }
+    throw new Error('下载超时');
 }
 
 function seekSummaryVideo(layout, start) {
@@ -1432,7 +1587,7 @@ async function generateSummaryAsset(asset, encodedPath, button) {
     }
 }
 
-async function openSummary(encodedPath) {
+async function openSummary(encodedPath, options = {}) {
     const apiPath = encodedPath;
     const list = document.getElementById('browseList');
     const readingView = document.getElementById('readingView');
@@ -1467,18 +1622,43 @@ async function openSummary(encodedPath) {
             enableAsr: false,
         });
 
+        const rawSummaryPath = decodePath(encodedPath);
+        if (options.pushHistory !== false) {
+            const nextUrl = `${location.pathname}?summary=${encodeURIComponent(rawSummaryPath)}`;
+            if (location.pathname + location.search !== nextUrl) {
+                history.pushState({ summary: rawSummaryPath }, '', nextUrl);
+            }
+        }
         setupSummaryDetailInteractions(readingContent);
         setupExternalLinks(readingContent);
     } catch (err) { await showAlert('加载失败: ' + err.message, '加载失败'); }
 }
 
-function closeReading() {
+function closeReading(updateHistory = true) {
     document.getElementById('readingView').classList.remove('active');
     document.getElementById('browseList').style.display = 'block';
     restoreHeader('browseTitle', 'browseSubtitle', browseHeaderBeforeReading);
     browseHeaderBeforeReading = null;
     updateGlobalBackButton();
+    if (updateHistory && new URLSearchParams(location.search).has('summary')) {
+        history.pushState({}, '', location.pathname);
+    }
 }
+
+function restoreSummaryFromUrl() {
+    const rawPath = new URLSearchParams(location.search).get('summary');
+    if (!rawPath) return;
+    openSummary(encodePath(rawPath), { pushHistory: false });
+}
+
+window.addEventListener('popstate', () => {
+    const rawPath = new URLSearchParams(location.search).get('summary');
+    if (rawPath) {
+        openSummary(encodePath(rawPath), { pushHistory: false });
+    } else {
+        closeReading(false);
+    }
+});
 
 // ---------------------------------------------------------------------------
 // Markdown → HTML
@@ -2078,6 +2258,7 @@ function taskTypeText(type) {
         url: 'URL',
         user: 'UP 主',
         favorites: '收藏夹',
+        telegram: 'Telegram',
     };
     return map[type] || type || '-';
 }
@@ -2147,7 +2328,7 @@ async function loadUrlTaskLogs(page = urlTaskLogPage, options = {}) {
     urlTaskLogPage = Math.max(1, page);
 
     try {
-        const res = await fetch(`/api/tasks?type=url&page=${urlTaskLogPage}&page_size=5`);
+        const res = await fetch(`/api/tasks?page=${urlTaskLogPage}&page_size=5`);
         const data = await res.json();
         const items = data.items || [];
         items.forEach(task => {
@@ -3486,6 +3667,7 @@ let settingsLoaded = false;
 function updateAsrSettingsVisibility() {
     const mode = document.getElementById('settingsAsrMode')?.value || 'local';
     document.getElementById('settingsLocalAsrPanel')?.classList.toggle('hidden', mode !== 'local');
+    document.getElementById('settingsMimoAsrPanel')?.classList.toggle('hidden', mode !== 'mimo');
     document.getElementById('settingsBailianAsrPanel')?.classList.toggle('hidden', mode !== 'bailian');
 }
 
@@ -3502,6 +3684,11 @@ async function loadSettings() {
         document.getElementById('settingsWhisperModel').value = data.whisper_model || 'whisper-tiny';
         document.getElementById('settingsWhisperDevice').value = data.whisper_device || 'auto';
         document.getElementById('settingsWhisperComputeType').value = data.whisper_compute_type || 'default';
+        document.getElementById('settingsMimoAsrApiKey').placeholder = data.mimo_asr_api_key_masked || '输入 Mimo ASR API Key';
+        document.getElementById('settingsMimoAsrApiKey').value = '';
+        document.getElementById('settingsMimoAsrBaseUrl').value = data.mimo_asr_base_url || 'https://api.xiaomimimo.com/v1';
+        document.getElementById('settingsMimoAsrModel').value = data.mimo_asr_model || 'mimo-v2.5-asr';
+        document.getElementById('settingsMimoAsrLanguage').value = data.mimo_asr_language || 'auto';
         document.getElementById('settingsBailianApiKey').placeholder = data.bailian_api_key_masked || '输入百炼 API Key';
         document.getElementById('settingsBailianApiKey').value = '';
         document.getElementById('settingsBailianAsrModel').value = data.bailian_asr_model || 'qwen3-asr-flash-filetrans';
@@ -3541,6 +3728,10 @@ async function saveSettings() {
     const whisperModel = document.getElementById('settingsWhisperModel').value.trim();
     const whisperDevice = document.getElementById('settingsWhisperDevice').value.trim();
     const whisperComputeType = document.getElementById('settingsWhisperComputeType').value.trim();
+    const mimoAsrApiKey = document.getElementById('settingsMimoAsrApiKey').value.trim();
+    const mimoAsrBaseUrl = document.getElementById('settingsMimoAsrBaseUrl').value.trim();
+    const mimoAsrModel = document.getElementById('settingsMimoAsrModel').value.trim();
+    const mimoAsrLanguage = document.getElementById('settingsMimoAsrLanguage').value;
     const bailianApiKey = document.getElementById('settingsBailianApiKey').value.trim();
     const bailianAsrModel = document.getElementById('settingsBailianAsrModel').value.trim();
     const bailianAsrBaseUrl = document.getElementById('settingsBailianAsrBaseUrl').value.trim();
@@ -3574,6 +3765,10 @@ async function saveSettings() {
                 whisper_model: whisperModel,
                 whisper_device: whisperDevice,
                 whisper_compute_type: whisperComputeType,
+                mimo_asr_api_key: mimoAsrApiKey,
+                mimo_asr_base_url: mimoAsrBaseUrl,
+                mimo_asr_model: mimoAsrModel,
+                mimo_asr_language: mimoAsrLanguage,
                 bailian_api_key: bailianApiKey,
                 bailian_asr_base_url: bailianAsrBaseUrl,
                 bailian_asr_model: bailianAsrModel,
@@ -3662,6 +3857,19 @@ function toggleBailianTokenVisibility() {
     lucide.createIcons({ nodes: [btn] });
 }
 
+function toggleMimoAsrTokenVisibility() {
+    const input = document.getElementById('settingsMimoAsrApiKey');
+    const btn = document.getElementById('toggleMimoAsrTokenBtn');
+    if (input.type === 'password') {
+        input.type = 'text';
+        btn.innerHTML = '<i data-lucide="eye-off" class="lucide-icon icon-sm"></i>';
+    } else {
+        input.type = 'password';
+        btn.innerHTML = '<i data-lucide="eye" class="lucide-icon icon-sm"></i>';
+    }
+    lucide.createIcons({ nodes: [btn] });
+}
+
 function toggleR2SecretVisibility() {
     const input = document.getElementById('settingsCloudflareR2SecretAccessKey');
     const btn = document.getElementById('toggleR2SecretBtn');
@@ -3688,3 +3896,4 @@ switchToPage = function (pageId, navEl) {
 };
 
 loadUrlTaskLogs(1);
+restoreSummaryFromUrl();

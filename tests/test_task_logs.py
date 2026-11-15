@@ -1,11 +1,14 @@
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
 import server
 from routes import deps
+from routes.telegram_bot import TelegramBotConfig, telegram_bot_service
 
 
 class UrlTargetResolutionTest(unittest.IsolatedAsyncioTestCase):
@@ -154,6 +157,79 @@ class TaskLogApiTest(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["task_id"], "url-api-test")
         self.assertEqual(payload["progress_percent"], 0)
+
+
+class TelegramTaskLogTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_data_dir = deps.DATA_DIR
+        self.original_config = telegram_bot_service._config
+        self.original_session = telegram_bot_service._session
+        self.original_summary_tasks = set(telegram_bot_service._summary_tasks)
+        deps.DATA_DIR = Path(self.temp_dir.name)
+        deps.task_logs.clear()
+        deps.progress_tasks.clear()
+        deps.progress_subscribers.clear()
+        telegram_bot_service._config = TelegramBotConfig(
+            enabled=True,
+            token="test-token",
+            allowed_user_ids=set(),
+            output_folder=deps.default_folder_name(),
+        )
+        telegram_bot_service._summary_tasks.clear()
+
+    def tearDown(self):
+        deps.DATA_DIR = self.original_data_dir
+        telegram_bot_service._config = self.original_config
+        telegram_bot_service._session = self.original_session
+        telegram_bot_service._summary_tasks.clear()
+        telegram_bot_service._summary_tasks.update(self.original_summary_tasks)
+        deps.task_logs.clear()
+        deps.progress_tasks.clear()
+        deps.progress_subscribers.clear()
+        self.temp_dir.cleanup()
+
+    async def test_telegram_update_registers_persisted_task_log(self):
+        sent_messages: list[dict] = []
+
+        async def fake_send_message(chat_id, text, reply_to_message_id=None):
+            sent_messages.append({
+                "chat_id": chat_id,
+                "text": text,
+                "reply_to_message_id": reply_to_message_id,
+            })
+            return {"result": {"message_id": 456}}
+
+        async def fake_run_summary_task(*args, **kwargs):
+            return None
+
+        update = {
+            "message": {
+                "message_id": 123,
+                "text": "https://www.bilibili.com/video/BV1xx411c7mD",
+                "chat": {"id": 10001},
+                "from": {"id": 20002, "is_bot": False},
+            }
+        }
+
+        with mock.patch.object(telegram_bot_service, "_send_message", side_effect=fake_send_message), \
+                mock.patch.object(telegram_bot_service, "_run_summary_task", side_effect=fake_run_summary_task):
+            await telegram_bot_service._handle_update(update)
+            if telegram_bot_service._summary_tasks:
+                await asyncio.gather(*list(telegram_bot_service._summary_tasks))
+
+        self.assertEqual(len(sent_messages), 1)
+        self.assertTrue((deps.DATA_DIR / "task_logs.json").is_file())
+
+        logs = deps.list_task_logs(task_type="telegram")
+        self.assertEqual(logs["total"], 1)
+        item = logs["items"][0]
+        self.assertEqual(item["type"], "telegram")
+        self.assertEqual(item["title"], "Telegram 视频总结")
+        self.assertEqual(item["total"], 1)
+        self.assertEqual(item["meta"]["chat_id"], 10001)
+        self.assertEqual(item["meta"]["user_id"], 20002)
+        self.assertEqual(item["meta"]["bvids"], ["BV1xx411c7mD"])
 
 
 if __name__ == "__main__":

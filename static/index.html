@@ -279,6 +279,7 @@
                             <label>识别模式</label>
                             <select class="input" id="settingsAsrMode" onchange="updateAsrSettingsVisibility()">
                                 <option value="local">本地</option>
+                                <option value="mimo">Mimo</option>
                                 <option value="bailian">百炼</option>
                             </select>
                         </div>
@@ -295,6 +296,34 @@
                                 <label>Whisper 计算类型</label>
                                 <input class="input" id="settingsWhisperComputeType" placeholder="default、int8 或 float16">
                             </div>
+                        </div>
+                        <div class="settings-mode-panel" id="settingsMimoAsrPanel">
+                            <div class="form-group">
+                                <label>Mimo ASR API Key</label>
+                                <div class="settings-token-row">
+                                    <input class="input settings-token-input" id="settingsMimoAsrApiKey" type="password" placeholder="输入 Mimo ASR API Key">
+                                    <button class="btn btn-secondary btn-secondary-compact" onclick="toggleMimoAsrTokenVisibility()" id="toggleMimoAsrTokenBtn">
+                                        <i data-lucide="eye" class="lucide-icon icon-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Mimo ASR Base URL</label>
+                                <input class="input" id="settingsMimoAsrBaseUrl" placeholder="https://api.xiaomimimo.com/v1">
+                            </div>
+                            <div class="form-group">
+                                <label>Mimo ASR 模型</label>
+                                <input class="input" id="settingsMimoAsrModel" value="mimo-v2.5-asr" readonly>
+                            </div>
+                            <div class="form-group">
+                                <label>语言</label>
+                                <select class="input" id="settingsMimoAsrLanguage">
+                                    <option value="auto">自动识别</option>
+                                    <option value="zh">中文</option>
+                                    <option value="en">英文</option>
+                                </select>
+                            </div>
+                            <div class="settings-hint">Mimo ASR 使用独立语音识别配置，不复用上方总结模型配置。</div>
                         </div>
                         <div class="settings-mode-panel" id="settingsBailianAsrPanel">
                             <div class="form-group">
@@ -417,6 +446,7 @@
 
     <script src="/static/vendor/marked.umd.js"></script>
     <script src="/static/vendor/purify.min.js"></script>
+    <script src="/static/vendor/dash.all.min.js"></script>
     <script src="/static/app.js"></script>
     <script>
         // Initialize Lucide icons after DOM & app.js loaded

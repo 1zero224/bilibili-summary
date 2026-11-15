@@ -1,0 +1,18 @@
+services:
+  bilibili-summary:
+    image: bilibili-summary:latest
+    build: .
+    container_name: bilibili-summary
+    ports:
+      - "${BILISUMMARY_BIND:-127.0.0.1}:18520:18520"
+    environment:
+      PORT: "18520"
+      BILISUMMARY_BUNDLE_DIR: /app
+      BILISUMMARY_DATA_DIR: /data
+      BILISUMMARY_ENV_FILE: /app/.env.local
+    volumes:
+      - ./data:/data
+      - ./static:/app/static:ro
+      - ./server.py:/app/server.py:ro
+      - ./.env.local:/app/.env.local
+    restart: unless-stopped

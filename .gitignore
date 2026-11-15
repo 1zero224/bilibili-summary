@@ -10,6 +10,7 @@ venv/
 summary/
 ass/
 media/
+data/
 
 # Python
 __pycache__/
@@ -45,3 +46,7 @@ models/
 # Logs
 *.log
 console-r2-check.log
+
+# Local backups
+*.bak-*
+.migration-backup*/

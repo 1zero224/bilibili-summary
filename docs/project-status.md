@@ -35,7 +35,8 @@ Last updated: June 16, 2026
 - ASR (Automatic Speech Recognition):
   - Local Whisper transcription via faster-whisper
   - Alibaba Cloud Bailian (DashScope) cloud ASR with R2 storage integration
-  - Unified ASR entry point with mode switching (local/bailian)
+  - Xiaomi Mimo ASR via mimo-v2.5-asr
+  - Unified ASR entry point with mode switching (local/bailian/mimo)
 - Folder management:
   - Create/delete folders, move summaries between folders
   - Cascade delete/move of associated files (media, subtitles, detailed summaries)
@@ -63,7 +64,7 @@ Last updated: June 16, 2026
   - Upgraded to marked.js + DOMPurify for GFM support
   - Timestamp link conversion to clickable buttons
 - Settings expansion:
-  - ASR mode, Whisper, Bailian, R2 storage, Telegram bot, task concurrency
+  - ASR mode, Whisper, Bailian, Mimo ASR, R2 storage, Telegram bot, task concurrency
   - MIMO platform auto-detection and API adaptation
   - Hot-reload on settings save
 - Sidebar:

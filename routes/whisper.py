@@ -1,5 +1,5 @@
 """
-语音识别辅助函数，支持本地 Whisper 和百炼 ASR。
+语音识别辅助函数，支持本地 Whisper、百炼 ASR 和 Mimo ASR。
 """
 
 import asyncio
@@ -12,6 +12,7 @@ from typing import Awaitable, Callable
 
 from routes.bilibili_downloader import download_bilibili_video
 from routes.bailian_asr import transcribe_bailian_media
+from routes.mimo_asr import transcribe_mimo_media
 
 
 ProgressCallback = Callable[[str], Awaitable[None]]
@@ -29,6 +30,7 @@ _WHISPER_INITIAL_PROMPT = (
 )
 _ASR_MODE_LOCAL = "local"
 _ASR_MODE_BAILIAN = "bailian"
+_ASR_MODE_MIMO = "mimo"
 
 
 def get_whisper_model() -> str:
@@ -45,15 +47,24 @@ def get_whisper_compute_type() -> str:
 
 def get_asr_mode() -> str:
     mode = os.getenv("ASR_MODE", _ASR_MODE_LOCAL).strip().lower()
-    return mode if mode in {_ASR_MODE_LOCAL, _ASR_MODE_BAILIAN} else _ASR_MODE_LOCAL
+    return mode if mode in {_ASR_MODE_LOCAL, _ASR_MODE_BAILIAN, _ASR_MODE_MIMO} else _ASR_MODE_LOCAL
 
 
 def get_asr_mode_label() -> str:
-    return "百炼" if get_asr_mode() == _ASR_MODE_BAILIAN else "本地 Whisper"
+    mode = get_asr_mode()
+    if mode == _ASR_MODE_BAILIAN:
+        return "百炼"
+    if mode == _ASR_MODE_MIMO:
+        return "Mimo ASR"
+    return "本地 Whisper"
 
 
 def using_bailian_asr() -> bool:
     return get_asr_mode() == _ASR_MODE_BAILIAN
+
+
+def using_mimo_asr() -> bool:
+    return get_asr_mode() == _ASR_MODE_MIMO
 
 
 def get_whisper_model_dir() -> Path:
@@ -397,6 +408,19 @@ async def transcribe_media(
     if using_bailian_asr():
         await _notify(progress, "百炼字幕识别模式已启用")
         return await transcribe_bailian_media(
+            media_path,
+            duration=duration,
+            progress=progress,
+            source_url=source_url,
+            bvid=bvid,
+            title=title,
+            output_subdir=output_subdir,
+            media_rel_path=media_rel_path,
+        )
+
+    if using_mimo_asr():
+        await _notify(progress, "Mimo ASR 字幕识别模式已启用")
+        return await transcribe_mimo_media(
             media_path,
             duration=duration,
             progress=progress,

@@ -9,7 +9,7 @@ Bilibili 视频 AI 摘要工具，支持语音识别、文件夹管理、批量�
 - **收藏夹模式**: QR 码登录、加载收藏夹、批量总结、取消收藏（带撤销）
 - **浏览模式**: 卡片/紧凑视图切换、文件夹分组、批量移动和删除
 - **视频详情**: 本地视频播放器 + 可点击字幕时间跳转 + 详细总结标签页
-- **语音识别**: 支持本地 Whisper 和阿里云百炼 ASR 两种后端
+- **语音识别**: 支持本地 Whisper、阿里云百炼 ASR 和小米 Mimo ASR
 - **详细总结**: 带时间段标记的 Markdown 详细总结，支持按需生成
 - **任务日志**: 持久化任务记录，实时状态追踪，详情弹窗
 - **Telegram Bot**: 发送 Bilibili 链接到 Bot 即可触发总结，实时回传进度
@@ -23,7 +23,7 @@ Bilibili 视频 AI 摘要工具，支持语音识别、文件夹管理、批量�
 - Bilibili 集成: `bilibili-api-python`
 - 视频下载: 进程内并发下载器 + FFmpeg 混流
 - AI 摘要: Anthropic 兼容 API（支持小米 MIMO 平台）
-- 语音识别: faster-whisper（本地）/ 阿里云百炼 DashScope（云端）
+- 语音识别: faster-whisper（本地）/ 阿里云百炼 DashScope（云端）/ 小米 Mimo ASR
 - 存储中转: Cloudflare R2（S3 兼容）
 - 音视频工具: FFmpeg / FFprobe
 
@@ -56,8 +56,17 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_ALLOWED_USER_IDS=123456789
 TELEGRAM_OUTPUT_FOLDER=Telegram
 
-# 语音识别模式（可选，默认 local）
+# 语音识别模式（可选，默认 local；可选 local / bailian / mimo）
 ASR_MODE=local
+
+# 小米 Mimo ASR（ASR_MODE=mimo 时使用独立语音识别配置）
+MIMO_ASR_API_KEY=your_mimo_asr_key
+MIMO_ASR_BASE_URL=https://api.xiaomimimo.com/v1
+MIMO_ASR_MODEL=mimo-v2.5-asr
+MIMO_ASR_LANGUAGE=auto
+MIMO_ASR_CHUNK_SECONDS=300
+MIMO_ASR_CONCURRENCY=5
+MIMO_ASR_MAX_TOKENS=2048
 
 # 百炼 ASR（ASR_MODE=bailian 时需要）
 BAILIAN_API_KEY=your_bailian_key
@@ -82,6 +91,36 @@ python server.py
 python app.py
 ```
 
+### Docker 运行
+
+默认端口为 `18520`，容器内运行数据保存在宿主机的 `./data` 目录。Docker 模式会把宿主机根目录的 `.env.local` 挂载到容器中作为唯一配置文件；在网页设置中保存配置会直接更新宿主机 `.env.local`，并对 AI、ASR、R2、Telegram 等运行时配置执行热更新。
+
+```bash
+# 使用 docker compose
+mkdir -p data
+docker compose up -d --build
+
+# 访问
+open http://127.0.0.1:18520
+```
+
+默认只绑定 `127.0.0.1`。如需局域网访问，设置 `BILISUMMARY_BIND=0.0.0.0` 后再 `docker compose up -d`。
+
+也可以直接使用 Docker：
+
+```bash
+docker build -t bilibili-summary .
+docker run -d \
+  --name bilibili-summary \
+  -e BILISUMMARY_BUNDLE_DIR=/app \
+  -e BILISUMMARY_DATA_DIR=/data \
+  -e BILISUMMARY_ENV_FILE=/app/.env.local \
+  -p 18520:18520 \
+  -v "$(pwd)/data:/data" \
+  -v "$(pwd)/.env.local:/app/.env.local" \
+  bilibili-summary
+```
+
 ## 项目结构
 
 ```text
@@ -90,8 +129,9 @@ server.py                       # FastAPI 应用主文件
 summarize.py                    # AI 摘要生成管线
 routes/
   asr.py                        # ASR 路由入口
-  whisper.py                    # Whisper/百炼 ASR 统一调度
+  whisper.py                    # Whisper/百炼/Mimo ASR 统一调度
   bailian_asr.py                # 阿里云百炼 ASR 客户端
+  mimo_asr.py                   # 小米 Mimo ASR 客户端
   bilibili_downloader.py        # Bilibili 视频并发下载器
   r2_storage.py                 # Cloudflare R2 存储辅助
   telegram_bot.py               # Telegram Bot 集成

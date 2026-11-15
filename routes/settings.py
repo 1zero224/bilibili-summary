@@ -7,12 +7,11 @@ import asyncio
 from typing import Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import aiohttp
-from dotenv import set_key
 
 from routes.bailian_asr import (
     get_bailian_api_key,
@@ -20,7 +19,8 @@ from routes.bailian_asr import (
     get_bailian_asr_language,
     get_bailian_asr_model,
 )
-from routes.deps import DATA_DIR, clean_env_value, default_folder_name, init_ai_client
+from env_utils import set_env_key as set_key
+from routes.deps import ENV_FILE, clean_env_value, default_folder_name, init_ai_client
 from routes.r2_storage import (
     DEFAULT_R2_KEY_PREFIX,
     get_cloudflare_r2_access_key_id,
@@ -33,6 +33,15 @@ from routes.r2_storage import (
     get_cloudflare_r2_secret_access_key,
 )
 from routes.telegram_bot import telegram_bot_service
+from routes.mimo_asr import (
+    DEFAULT_MIMO_ASR_BASE_URL,
+    DEFAULT_MIMO_ASR_MODEL,
+    get_mimo_asr_api_key,
+    get_mimo_asr_base_url,
+    get_mimo_asr_language,
+    get_mimo_asr_model,
+    normalize_mimo_asr_language,
+)
 from routes.whisper import get_asr_mode, get_whisper_compute_type, get_whisper_device, get_whisper_model
 
 router = APIRouter(prefix="/api", tags=["settings"])
@@ -89,7 +98,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 def _normalize_asr_mode(mode: str) -> str:
     value = clean_env_value(mode).lower()
-    return value if value in {"local", "bailian"} else "local"
+    return value if value in {"local", "bailian", "mimo"} else "local"
 
 
 @router.get("/settings")
@@ -107,6 +116,14 @@ async def get_settings():
         "whisper_model": get_whisper_model(),
         "whisper_device": get_whisper_device(),
         "whisper_compute_type": get_whisper_compute_type(),
+        "mimo_asr_api_key_masked": (
+            _mask_token(get_mimo_asr_api_key())
+            if get_mimo_asr_api_key()
+            else '输入 Mimo ASR API Key'
+        ),
+        "mimo_asr_base_url": get_mimo_asr_base_url(),
+        "mimo_asr_model": get_mimo_asr_model(),
+        "mimo_asr_language": get_mimo_asr_language(),
         "bailian_api_key_masked": _mask_token(get_bailian_api_key()) if get_bailian_api_key() else '输入百炼 API Key',
         "bailian_asr_base_url": get_bailian_asr_base_url(),
         "bailian_asr_model": get_bailian_asr_model(),
@@ -141,6 +158,10 @@ class SaveSettingsRequest(BaseModel):
     whisper_model: str = ""
     whisper_device: str = ""
     whisper_compute_type: str = ""
+    mimo_asr_api_key: str = ""
+    mimo_asr_base_url: str = ""
+    mimo_asr_model: str = ""
+    mimo_asr_language: str = ""
     bailian_api_key: str = ""
     bailian_asr_base_url: str = ""
     bailian_asr_model: str = ""
@@ -160,14 +181,21 @@ class SaveSettingsRequest(BaseModel):
 
 
 @router.post("/settings")
-async def save_settings(req: SaveSettingsRequest):
+async def save_settings(req: SaveSettingsRequest, request: Request):
     """Save API settings to .env.local and hot-reload ai_client."""
     import routes.deps as deps
 
-    env_path = str(DATA_DIR / '.env.local')
+    env_path = str(ENV_FILE)
+    submitted = set()
+    try:
+        payload = await request.json()
+        if isinstance(payload, dict):
+            submitted = set(payload.keys())
+    except Exception:
+        submitted = set()
     changed = []
 
-    if req.asr_mode:
+    if 'asr_mode' in submitted and req.asr_mode:
         value = _normalize_asr_mode(req.asr_mode)
         set_key(env_path, 'ASR_MODE', value)
         os.environ['ASR_MODE'] = value
@@ -175,136 +203,166 @@ async def save_settings(req: SaveSettingsRequest):
 
     existing_token = clean_env_value(os.getenv('ANTHROPIC_AUTH_TOKEN') or os.getenv('MIMO_API_KEY'))
     incoming_token = clean_env_value(req.auth_token) if req.auth_token and '***' not in req.auth_token else existing_token
-    base_url = _normalize_anthropic_base_url(req.base_url, incoming_token)
-    if base_url:
+    base_url_input = req.base_url if 'base_url' in submitted else os.getenv('ANTHROPIC_BASE_URL', '')
+    base_url = _normalize_anthropic_base_url(base_url_input, incoming_token)
+    if ('base_url' in submitted or 'auth_token' in submitted) and base_url:
         set_key(env_path, 'ANTHROPIC_BASE_URL', base_url)
         os.environ['ANTHROPIC_BASE_URL'] = base_url
         changed.append('base_url')
 
-    if req.auth_token and '***' not in req.auth_token:
+    if 'auth_token' in submitted and req.auth_token and '***' not in req.auth_token:
         set_key(env_path, 'ANTHROPIC_AUTH_TOKEN', incoming_token)
         os.environ['ANTHROPIC_AUTH_TOKEN'] = incoming_token
         changed.append('auth_token')
 
-    if req.default_model:
+    if 'default_model' in submitted and req.default_model:
         set_key(env_path, 'DEFAULT_MODEL', req.default_model)
         os.environ['DEFAULT_MODEL'] = req.default_model
         deps.DEFAULT_MODEL = req.default_model
         changed.append('default_model')
 
-    if req.task_concurrency is not None:
+    if 'task_concurrency' in submitted and req.task_concurrency is not None:
         value = max(1, min(20, int(req.task_concurrency)))
         set_key(env_path, 'TASK_CONCURRENCY', str(value))
         os.environ['TASK_CONCURRENCY'] = str(value)
         deps.set_task_concurrency(value)
         changed.append('task_concurrency')
 
-    if req.whisper_model:
+    if 'whisper_model' in submitted and req.whisper_model:
         set_key(env_path, 'WHISPER_MODEL', req.whisper_model)
         os.environ['WHISPER_MODEL'] = req.whisper_model
         changed.append('whisper_model')
 
-    if req.whisper_device:
+    if 'whisper_device' in submitted and req.whisper_device:
         set_key(env_path, 'WHISPER_DEVICE', req.whisper_device)
         os.environ['WHISPER_DEVICE'] = req.whisper_device
         changed.append('whisper_device')
 
-    if req.whisper_compute_type:
+    if 'whisper_compute_type' in submitted and req.whisper_compute_type:
         set_key(env_path, 'WHISPER_COMPUTE_TYPE', req.whisper_compute_type)
         os.environ['WHISPER_COMPUTE_TYPE'] = req.whisper_compute_type
         changed.append('whisper_compute_type')
 
-    if req.bailian_api_key and '***' not in req.bailian_api_key:
+    if 'mimo_asr_api_key' in submitted and req.mimo_asr_api_key and '***' not in req.mimo_asr_api_key:
+        value = clean_env_value(req.mimo_asr_api_key)
+        set_key(env_path, 'MIMO_ASR_API_KEY', value)
+        os.environ['MIMO_ASR_API_KEY'] = value
+        changed.append('mimo_asr_api_key')
+
+    if 'mimo_asr_base_url' in submitted:
+        value = req.mimo_asr_base_url.strip().rstrip("/") or DEFAULT_MIMO_ASR_BASE_URL
+        set_key(env_path, 'MIMO_ASR_BASE_URL', value)
+        os.environ['MIMO_ASR_BASE_URL'] = value
+        changed.append('mimo_asr_base_url')
+
+    if 'mimo_asr_model' in submitted:
+        set_key(env_path, 'MIMO_ASR_MODEL', DEFAULT_MIMO_ASR_MODEL)
+        os.environ['MIMO_ASR_MODEL'] = DEFAULT_MIMO_ASR_MODEL
+        changed.append('mimo_asr_model')
+
+    if 'mimo_asr_language' in submitted:
+        value = normalize_mimo_asr_language(req.mimo_asr_language)
+        set_key(env_path, 'MIMO_ASR_LANGUAGE', value)
+        os.environ['MIMO_ASR_LANGUAGE'] = value
+        changed.append('mimo_asr_language')
+
+    if 'bailian_api_key' in submitted and req.bailian_api_key and '***' not in req.bailian_api_key:
         set_key(env_path, 'BAILIAN_API_KEY', clean_env_value(req.bailian_api_key))
         os.environ['BAILIAN_API_KEY'] = clean_env_value(req.bailian_api_key)
         changed.append('bailian_api_key')
 
-    if req.bailian_asr_base_url or req.bailian_asr_base_url == "":
+    if 'bailian_asr_base_url' in submitted:
         value = req.bailian_asr_base_url.strip().rstrip("/") or "https://dashscope.aliyuncs.com/api/v1"
         set_key(env_path, 'BAILIAN_ASR_BASE_URL', value)
         os.environ['BAILIAN_ASR_BASE_URL'] = value
         changed.append('bailian_asr_base_url')
 
-    if req.bailian_asr_model or req.bailian_asr_model == "":
+    if 'bailian_asr_model' in submitted:
         value = req.bailian_asr_model.strip() or "qwen3-asr-flash-filetrans"
         set_key(env_path, 'BAILIAN_ASR_MODEL', value)
         os.environ['BAILIAN_ASR_MODEL'] = value
         changed.append('bailian_asr_model')
 
-    if req.bailian_asr_language or req.bailian_asr_language == "":
+    if 'bailian_asr_language' in submitted:
         # 保留空字符串用于关闭 language 参数。
         set_key(env_path, 'BAILIAN_ASR_LANGUAGE', req.bailian_asr_language.strip())
         os.environ['BAILIAN_ASR_LANGUAGE'] = req.bailian_asr_language.strip()
         changed.append('bailian_asr_language')
 
-    if req.cloudflare_r2_account_id or req.cloudflare_r2_account_id == "":
+    if 'cloudflare_r2_account_id' in submitted:
         value = req.cloudflare_r2_account_id.strip()
         set_key(env_path, 'CLOUDFLARE_R2_ACCOUNT_ID', value)
         os.environ['CLOUDFLARE_R2_ACCOUNT_ID'] = value
         changed.append('cloudflare_r2_account_id')
 
-    if req.cloudflare_r2_endpoint_url or req.cloudflare_r2_endpoint_url == "":
+    if 'cloudflare_r2_endpoint_url' in submitted:
         value = req.cloudflare_r2_endpoint_url.strip().rstrip("/")
         set_key(env_path, 'CLOUDFLARE_R2_ENDPOINT_URL', value)
         os.environ['CLOUDFLARE_R2_ENDPOINT_URL'] = value
         changed.append('cloudflare_r2_endpoint_url')
 
-    if req.cloudflare_r2_bucket or req.cloudflare_r2_bucket == "":
+    if 'cloudflare_r2_bucket' in submitted:
         value = req.cloudflare_r2_bucket.strip()
         set_key(env_path, 'CLOUDFLARE_R2_BUCKET', value)
         os.environ['CLOUDFLARE_R2_BUCKET'] = value
         changed.append('cloudflare_r2_bucket')
 
-    if req.cloudflare_r2_access_key_id or req.cloudflare_r2_access_key_id == "":
+    if 'cloudflare_r2_access_key_id' in submitted:
         value = req.cloudflare_r2_access_key_id.strip()
         set_key(env_path, 'CLOUDFLARE_R2_ACCESS_KEY_ID', value)
         os.environ['CLOUDFLARE_R2_ACCESS_KEY_ID'] = value
         changed.append('cloudflare_r2_access_key_id')
 
-    if req.cloudflare_r2_secret_access_key and '***' not in req.cloudflare_r2_secret_access_key:
+    if (
+        'cloudflare_r2_secret_access_key' in submitted
+        and req.cloudflare_r2_secret_access_key
+        and '***' not in req.cloudflare_r2_secret_access_key
+    ):
         value = clean_env_value(req.cloudflare_r2_secret_access_key)
         set_key(env_path, 'CLOUDFLARE_R2_SECRET_ACCESS_KEY', value)
         os.environ['CLOUDFLARE_R2_SECRET_ACCESS_KEY'] = value
         changed.append('cloudflare_r2_secret_access_key')
 
-    if req.cloudflare_r2_public_base_url or req.cloudflare_r2_public_base_url == "":
+    if 'cloudflare_r2_public_base_url' in submitted:
         value = req.cloudflare_r2_public_base_url.strip().rstrip("/")
         set_key(env_path, 'CLOUDFLARE_R2_PUBLIC_BASE_URL', value)
         os.environ['CLOUDFLARE_R2_PUBLIC_BASE_URL'] = value
         changed.append('cloudflare_r2_public_base_url')
 
-    if req.cloudflare_r2_key_prefix or req.cloudflare_r2_key_prefix == "":
+    if 'cloudflare_r2_key_prefix' in submitted:
         value = req.cloudflare_r2_key_prefix.strip().strip("/") or DEFAULT_R2_KEY_PREFIX
         set_key(env_path, 'CLOUDFLARE_R2_KEY_PREFIX', value)
         os.environ['CLOUDFLARE_R2_KEY_PREFIX'] = value
         changed.append('cloudflare_r2_key_prefix')
 
-    if req.cloudflare_r2_delete_after_use is not None:
+    if 'cloudflare_r2_delete_after_use' in submitted and req.cloudflare_r2_delete_after_use is not None:
         value = 'true' if req.cloudflare_r2_delete_after_use else 'false'
         set_key(env_path, 'CLOUDFLARE_R2_DELETE_AFTER_USE', value)
         os.environ['CLOUDFLARE_R2_DELETE_AFTER_USE'] = value
         changed.append('cloudflare_r2_delete_after_use')
 
-    if req.telegram_bot_enabled is not None:
+    if 'telegram_bot_enabled' in submitted and req.telegram_bot_enabled is not None:
         value = 'true' if req.telegram_bot_enabled else 'false'
         set_key(env_path, 'TELEGRAM_BOT_ENABLED', value)
         os.environ['TELEGRAM_BOT_ENABLED'] = value
         changed.append('telegram_bot_enabled')
 
-    if req.telegram_bot_token and '***' not in req.telegram_bot_token:
+    if 'telegram_bot_token' in submitted and req.telegram_bot_token and '***' not in req.telegram_bot_token:
         set_key(env_path, 'TELEGRAM_BOT_TOKEN', req.telegram_bot_token)
         os.environ['TELEGRAM_BOT_TOKEN'] = req.telegram_bot_token
         changed.append('telegram_bot_token')
 
-    allowed_user_ids = req.telegram_allowed_user_ids.strip()
-    set_key(env_path, 'TELEGRAM_ALLOWED_USER_IDS', allowed_user_ids)
-    os.environ['TELEGRAM_ALLOWED_USER_IDS'] = allowed_user_ids
-    changed.append('telegram_allowed_user_ids')
+    if 'telegram_allowed_user_ids' in submitted:
+        allowed_user_ids = req.telegram_allowed_user_ids.strip()
+        set_key(env_path, 'TELEGRAM_ALLOWED_USER_IDS', allowed_user_ids)
+        os.environ['TELEGRAM_ALLOWED_USER_IDS'] = allowed_user_ids
+        changed.append('telegram_allowed_user_ids')
 
-    output_folder = req.telegram_output_folder.strip() or default_folder_name()
-    set_key(env_path, 'TELEGRAM_OUTPUT_FOLDER', output_folder)
-    os.environ['TELEGRAM_OUTPUT_FOLDER'] = output_folder
-    changed.append('telegram_output_folder')
+    if 'telegram_output_folder' in submitted:
+        output_folder = req.telegram_output_folder.strip() or default_folder_name()
+        set_key(env_path, 'TELEGRAM_OUTPUT_FOLDER', output_folder)
+        os.environ['TELEGRAM_OUTPUT_FOLDER'] = output_folder
+        changed.append('telegram_output_folder')
 
     # Hot-reload AI client
     init_ai_client()

@@ -20,15 +20,17 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import toml
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 from bilibili_api import video, user, favorite_list, search
 from bilibili_api.utils.network import Credential
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
 import anthropic
+from env_utils import get_env_file, set_env_key as set_key
 from routes.whisper import download_bilibili_media, transcribe_media
 
 # Path resolution (supports PyInstaller bundle)
 DATA_DIR = Path(os.environ.get('BILISUMMARY_DATA_DIR', os.path.dirname(os.path.abspath(__file__))))
+ENV_FILE = get_env_file(DATA_DIR)
 
 
 def extract_bvid(url: str) -> str:
@@ -586,7 +588,7 @@ async def qr_login():
             credential = login.get_credential()
             
             # 保存到 .env.local
-            env_path = DATA_DIR / '.env.local'
+            env_path = ENV_FILE
             set_key(str(env_path), 'BILIBILI_SESSION_TOKEN', credential.sessdata)
             set_key(str(env_path), 'BILIBILI_BILI_JCT', credential.bili_jct)
             if credential.ac_time_value:
@@ -618,7 +620,7 @@ async def main():
     args = parser.parse_args()
     
     # 加载环境变量
-    load_dotenv(str(DATA_DIR / '.env.local'))
+    load_dotenv(str(ENV_FILE))
     
     # 处理登录模式
     if args.login:
