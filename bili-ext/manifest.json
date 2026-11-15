@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "BiliSub 面板（自用）",
+  "version": "0.3.3",
+  "description": "B 站视频页内字幕面板：官方/AI 字幕列表、跟随播放、点击跳转、复制导出；无字幕时调用自建服务器 ASR。",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.bilibili.com/*",
+    "https://api.bilibili.com/*",
+    "https://*.hdslb.com/*",
+    "http://127.0.0.1:18520/*",
+    "http://localhost:18520/*",
+    "https://your-server.example/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "BiliSub 面板"
+  },
+  "options_page": "src/options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.bilibili.com/video/*"
+      ],
+      "js": [
+        "src/page-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.bilibili.com/video/*"
+      ],
+      "js": [
+        "src/core.js",
+        "src/wbi.js",
+        "src/net.js",
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "https://www.bilibili.com/*"
+      ],
+      "resources": [
+        "src/panel.html"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}

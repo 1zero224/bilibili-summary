@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>BiliSub 面板 · 设置</title>
+  <style>
+    /* 所有颜色走 token；表单控件**显式**设置 color/background，
+       否则深色 color-scheme 下 UA 会给控件白字，遇到白底就看不见了 */
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --card: #ffffff;
+      --line: rgba(16, 24, 40, .10);
+      --text: #14161a;
+      --text-2: #5c6472;
+      --text-3: #98a0ac;
+      --accent: #00aeec;
+      --accent-ink: #ffffff;
+      --accent-soft: rgba(0, 174, 236, .10);
+      --ok: #12b886;
+      --danger: #e5484d;
+      --chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.75 6 7.75l3-3' fill='none' stroke='%2398a0ac' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #111418;
+        --card: #191c21;
+        --line: rgba(255, 255, 255, .10);
+        --text: #e8eaee;
+        --text-2: #a2a9b4;
+        --text-3: #6f7683;
+        --accent: #3bc1ef;
+        --accent-ink: #08181f;
+        --accent-soft: rgba(59, 193, 239, .15);
+        --ok: #3ddc97;
+        --danger: #ff6b6b;
+        --chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.75 6 7.75l3-3' fill='none' stroke='%236f7683' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 20px 48px;
+      background: var(--bg);
+      color: var(--text);
+      font: 13.5px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .card {
+      max-width: 660px; margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 22px 24px 24px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 10px 30px rgba(16, 24, 40, .07);
+    }
+    h1 { font-size: 16px; margin: 0 0 4px; letter-spacing: .2px; }
+    .sub { color: var(--text-3); font-size: 12px; margin-bottom: 20px; }
+
+    .field { margin-top: 16px; }
+    .row { display: flex; gap: 14px; }
+    .row > .field { flex: 1; margin-top: 16px; }
+
+    label {
+      display: block; margin-bottom: 6px;
+      font-size: 12px; font-weight: 600; color: var(--text-2);
+    }
+    .hint { margin-top: 6px; font-size: 11.5px; color: var(--text-3); }
+    code {
+      background: var(--accent-soft); color: var(--accent);
+      padding: 1px 5px; border-radius: 5px; font-size: 11.5px;
+    }
+
+    /* 文本 / 数字输入 */
+    input[type="text"], input[type="password"], input[type="number"], select {
+      width: 100%;
+      font: inherit; font-size: 13px;
+      color: var(--text);
+      background-color: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 11px;
+      transition: border-color .16s ease, box-shadow .16s ease;
+    }
+    select {
+      appearance: none; -webkit-appearance: none;
+      padding-right: 30px;
+      background-image: var(--chevron);
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      background-size: 12px;
+      cursor: pointer;
+    }
+    select option { background: var(--card); color: var(--text); }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    input::placeholder { color: var(--text-3); }
+
+    /* 按钮：显式 color，避免白底白字 */
+    button {
+      font: inherit; font-size: 13px; font-weight: 500;
+      color: var(--text);
+      background-color: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 16px;
+      cursor: pointer;
+      transition: background-color .16s ease, border-color .16s ease, color .16s ease;
+    }
+    button:hover:not(:disabled) { background-image: linear-gradient(0deg, var(--accent-soft), var(--accent-soft)); border-color: var(--accent); }
+    button:active:not(:disabled) { transform: translateY(.5px); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.primary {
+      color: var(--accent-ink);
+      background-color: var(--accent);
+      border-color: transparent;
+      font-weight: 600;
+    }
+    button.primary:hover:not(:disabled) { background-image: none; filter: brightness(1.06); }
+
+    .btns { display: flex; gap: 10px; align-items: center; margin-top: 22px; flex-wrap: wrap; }
+    #msg { font-size: 12px; color: var(--ok); }
+    #msg.err { color: var(--danger); }
+    .divider { height: 1px; background: var(--line); margin: 20px 0 2px; border: 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>BiliSub 面板 · 设置</h1>
+    <div class="sub">字幕在浏览器侧抓取（用你自己的登录态）；ASR / 总结 / 历史库在服务器。</div>
+
+    <div class="field">
+      <label for="serverUrl">服务器地址</label>
+      <input id="serverUrl" type="text" placeholder="https://your-domain.com" autocomplete="off" />
+      <div class="hint">必须 https（B 站页面加载 http 远端会被混合内容拦截）。本机调试可填 <code>http://127.0.0.1:18520</code>。</div>
+    </div>
+
+    <div class="field">
+      <label for="token">访问 Token</label>
+      <input id="token" type="password" placeholder="服务器 DATA_DIR/.api_token" autocomplete="off" />
+      <div class="hint">请求会带 <code>X-BS-Token</code> 头。服务器未启用鉴权时留空。</div>
+    </div>
+
+    <hr class="divider" />
+
+    <div class="row">
+      <div class="field">
+        <label for="mode">面板形态</label>
+        <select id="mode">
+          <option value="embed">页面内嵌（插在右侧栏/弹幕列表上方）</option>
+          <option value="float">浮动（可拖拽）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="theme">面板主题</label>
+        <select id="theme">
+          <option value="auto">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="merged">字幕显示</label>
+        <select id="merged">
+          <option value="1">合并成句（推荐）</option>
+          <option value="0">逐条原文</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="follow">自动跟随</label>
+        <select id="follow">
+          <option value="1">跟随播放高亮并滚动</option>
+          <option value="0">只高亮不滚动</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field" style="max-width: 200px;">
+      <label for="width">浮动面板宽度（px）</label>
+      <input id="width" type="number" min="280" max="720" step="10" />
+    </div>
+
+    <div class="btns">
+      <button class="primary" id="save">保存</button>
+      <button id="test">测试连接</button>
+      <span id="msg"></span>
+    </div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
