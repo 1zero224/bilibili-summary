@@ -28,7 +28,6 @@ from routes.whisper import download_bilibili_media, transcribe_media
 # ---------------------------------------------------------------------------
 # Path resolution (supports PyInstaller bundle)
 # ---------------------------------------------------------------------------
-BUNDLE_DIR = Path(os.environ.get('BILISUMMARY_BUNDLE_DIR', os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 DATA_DIR = Path(os.environ.get('BILISUMMARY_DATA_DIR', os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 ENV_FILE = get_env_file(DATA_DIR)
 
