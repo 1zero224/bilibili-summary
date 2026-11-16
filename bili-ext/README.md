@@ -28,7 +28,7 @@
 | 任务进度：SSE 推送 + 轮询兜底 | ✅ 已实现 |
 | 服务器端历史页 `/history` | ✅ 只列 **ASR** 结果，封面网格（多行多列）、搜索标题/BV/UP |
 | 历史详情页 `/history/{bvid}` | ✅ 字幕全文（时间戳可点）+ 详细总结（`[[时间段]]` 可点）+ 在 B 站打开 |
-| 明暗主题 | ✅ 历史/详情页与设置页都是双 token，表单控件显式配色 |
+| 明暗主题 | ✅ 历史/详情页与扩展选项页都是双 token，表单控件显式配色 |
 | CC 挂载 | ⛔ 按决定不做 |
 
 ## 安装（unpacked）
@@ -57,7 +57,7 @@
 | GET | `/api/v2/history?q=&limit=&cursor=` | — | `{items:[{bvid,page,title,duration,author,cover,folder,has_summary,has_subtitle,subtitle_source,updated_at}], total, next_cursor}` | `store.py` |
 | GET | `/history` | — | 服务器端历史主面板（HTML，零构建） | `page.py` |
 
-**存储**：`DATA_DIR/subtitles/<bvid>_p<page>_<source>.json`（权威）+ 同步一份 `DATA_DIR/ass/<subdir>/<title>.ass`（让既有 Web UI 的详情页也能读到）。历史列表 = 既有 `summary/**/*.meta.json` ∪ `subtitles/*.json`。
+**存储**：`DATA_DIR/subtitles/<bvid>_p<page>_<source>.json`（权威）+ 同步一份 `DATA_DIR/ass/<subdir>/<title>.ass`（便于外部播放器与旧数据兼容）。历史列表 = 既有 `summary/**/*.meta.json` ∪ `subtitles/*.json`。
 
 **ASR 音源（三级，已实现于 `routes/v2/audio.py` + `tasks.py`）**：
 
@@ -75,7 +75,7 @@ python server.py
 # 控制台会打印：🔑 X-BS-Token: ab12cd…ef34
 # 令牌文件：$DATA_DIR/.api_token（0600）
 
-# 2) 公网部署必须打开鉴权（默认关闭，避免影响本机既有 Web UI）
+# 2) 公网部署必须打开鉴权（默认关闭，仅适合本机调试）
 export BILISUMMARY_AUTH=1
 export BILISUMMARY_BIND=127.0.0.1     # 由 Caddy/nginx 反代，不要直接 0.0.0.0 暴露
 python server.py
@@ -85,9 +85,9 @@ curl -s localhost:18520/api/v2/health
 curl -s -H "X-BS-Token: <token>" localhost:18520/api/v2/history
 ```
 
-- 浏览器访问 Web UI 时首次带一次 `?token=<token>`，中间件会种 `bs_token` Cookie，之后正常用。
+- 浏览器访问 `/history` 时首次带一次 `?token=<token>`，中间件会种 `bs_token` Cookie，之后正常用。
   （反向代理后建议 `uvicorn --proxy-headers` 或让 Caddy/nginx 传 `X-Forwarded-Proto`，否则中间件按 http 判断会给 Cookie 少加 `Secure`。）
-- `BILISUMMARY_AUTH=1` 时**所有 `/api/*`**（不只是 v2）都要令牌——否则公网上任何人都能 `POST /api/settings` 改你的 key。
+- `BILISUMMARY_AUTH=1` 时**所有 `/api/*`** 都要令牌——否则公网上任何人都能提交 ASR/总结任务并产生费用。
 - 建议在反代再加一层 Basic Auth / IP 白名单，并给 `/api/v2/subtitles/*/asr` 限速（防刷 ASR 费用）。
 
 ## 请求链路（为什么会有四档）

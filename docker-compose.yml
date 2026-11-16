@@ -12,7 +12,6 @@ services:
       BILISUMMARY_ENV_FILE: /app/.env.local
     volumes:
       - ./data:/data
-      - ./static:/app/static:ro
       - ./server.py:/app/server.py:ro
       - ./.env.local:/app/.env.local
     restart: unless-stopped

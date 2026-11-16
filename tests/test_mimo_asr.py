@@ -5,23 +5,17 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from fastapi.testclient import TestClient
-
-import server
 from routes.mimo_asr import (
     DEFAULT_MIMO_ASR_MAX_TOKENS,
     _build_mimo_asr_payload,
     _chat_completions_url,
     _chunk_ranges,
     build_mimo_subtitle_segments,
-    get_mimo_asr_api_key,
-    get_mimo_asr_base_url,
     get_mimo_asr_concurrency,
     normalize_mimo_asr_language,
     parse_mimo_asr_response,
     transcribe_mimo_media,
 )
-from routes.settings import _normalize_asr_mode
 from routes.whisper import get_asr_mode, get_asr_mode_label
 
 
@@ -202,39 +196,6 @@ class MimoAsrTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"ASR_MODE": "mimo"}):
             self.assertEqual(get_asr_mode(), "mimo")
             self.assertEqual(get_asr_mode_label(), "Mimo ASR")
-
-    def test_settings_normalize_mimo_asr_mode(self):
-        self.assertEqual(_normalize_asr_mode("mimo"), "mimo")
-        self.assertEqual(_normalize_asr_mode("unknown"), "local")
-
-    def test_mimo_asr_uses_independent_credentials(self):
-        os.environ["ANTHROPIC_AUTH_TOKEN"] = "summary-secret"
-        os.environ["ANTHROPIC_BASE_URL"] = "https://api.deepseek.com/anthropic"
-
-        with mock.patch("routes.settings.init_ai_client"), \
-                mock.patch("routes.settings.DATA_DIR", self.data_dir), \
-                mock.patch("routes.settings.telegram_bot_service.reload_from_env") as reload_bot, \
-                TestClient(server.app) as client:
-            reload_bot.return_value = None
-            response = client.post("/api/settings", json={
-                "asr_mode": "mimo",
-                "base_url": "https://api.deepseek.com/anthropic",
-                "auth_token": "summary-secret",
-                "mimo_asr_api_key": "mimo-asr-secret",
-                "mimo_asr_base_url": "https://api.xiaomimimo.com/v1",
-                "mimo_asr_model": "mimo-v2.5-asr",
-                "mimo_asr_language": "zh",
-            })
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["success"], True)
-        self.assertEqual(os.environ["ANTHROPIC_AUTH_TOKEN"], "summary-secret")
-        self.assertEqual(os.environ["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic")
-        self.assertEqual(os.environ["MIMO_ASR_API_KEY"], "mimo-asr-secret")
-        self.assertEqual(os.environ["MIMO_ASR_BASE_URL"], "https://api.xiaomimimo.com/v1")
-        self.assertEqual(get_mimo_asr_api_key(), "mimo-asr-secret")
-        self.assertEqual(get_mimo_asr_base_url(), "https://api.xiaomimimo.com/v1")
-
 
 if __name__ == "__main__":
     unittest.main()

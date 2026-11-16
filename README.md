@@ -1,168 +1,159 @@
 # Bilibili Summary
 
-Bilibili 视频 AI 摘要工具，支持语音识别、文件夹管理、批量总结和 Telegram Bot 集成。
+B 站视频字幕、ASR 转写与 AI 总结工具：**Chrome 扩展 + FastAPI 后端 + 服务器历史面板**。
 
-## 功能特性
+- 扩展：读取官方 CC / AI 字幕，合并句子、跟随播放、点击跳转、复制导出；无字幕时一键 ASR。
+- 后端：`/api/v2` 提供字幕存储、ASR 任务、总结生成与历史查询。
+- 历史页：`/history`（只列跑过 ASR 的视频），字幕全文与详细总结均可点击时间跳转。
+- Telegram Bot：发送 B 站链接即可触发总结并回传进度（可选）。
 
-- **URL 模式**: 粘贴 Bilibili 视频链接进行总结，支持多 P 视频和合集/系列链接
-- **UP 主模式**: 按 UP 主名或 UID 浏览视频列表，选择性批量总结
-- **收藏夹模式**: QR 码登录、加载收藏夹、批量总结、取消收藏（带撤销）
-- **浏览模式**: 卡片/紧凑视图切换、文件夹分组、批量移动和删除
-- **视频详情**: 本地视频播放器 + 可点击字幕时间跳转 + 详细总结标签页
-- **语音识别**: 支持本地 Whisper、阿里云百炼 ASR 和小米 Mimo ASR
-- **详细总结**: 带时间段标记的 Markdown 详细总结，支持按需生成
-- **任务日志**: 持久化任务记录，实时状态追踪，详情弹窗
-- **Telegram Bot**: 发送 Bilibili 链接到 Bot 即可触发总结，实时回传进度
-- **文件夹管理**: 创建/删除文件夹，移动总结记录，级联管理关联文件
+旧版 Web UI（URL / UP 主 / 收藏夹 / 浏览 / 设置）与 macOS 桌面端已移除，运行时配置统一由 `.env.local` 或环境变量提供。
 
-## 技术栈
+## 架构
 
-- 后端: FastAPI + Uvicorn
-- 前端: Vanilla JS + CSS（tokenized design system）
-- 桌面: pywebview
-- Bilibili 集成: `bilibili-api-python`
-- 视频下载: 进程内并发下载器 + FFmpeg 混流
-- AI 摘要: Anthropic 兼容 API（支持小米 MIMO 平台）
-- 语音识别: faster-whisper（本地）/ 阿里云百炼 DashScope（云端）/ 小米 Mimo ASR
-- 存储中转: Cloudflare R2（S3 兼容）
-- 音视频工具: FFmpeg / FFprobe
+```text
+Chrome 扩展 (bili-ext/) --X-BS-Token--> /api/v2/*
+Telegram Bot --------------------------> 任务队列
+                                              |
+                                              v
+                          DATA_DIR/{subtitles,summary,ass,media}
+                                              |
+浏览器 /history <------ server.py 渲染的只读历史页
+```
+
+- 字幕/总结的权威存储是服务器 `DATA_DIR`。
+- 扩展刷新后会回读服务器已落盘的字幕（含 ASR 结果），不依赖浏览器缓存。
+- 面板 UI 运行在扩展自己的 iframe 中，与 B 站页面 DOM/CSS 完全隔离。
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 配置
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. 配置环境变量
-
-创建 `.env.local` 文件：
+在仓库根目录创建 `.env.local`（Docker 会挂载进容器）：
 
 ```env
-# AI API 配置（必填）
+# AI 总结（必填）
 ANTHROPIC_AUTH_TOKEN=your_api_key
 ANTHROPIC_BASE_URL=https://api.anthropic.com
+# DEFAULT_MODEL=mimo-v2.5-pro
 
-# 小米 MIMO 平台（可选，自动识别）
-# ANTHROPIC_BASE_URL=https://api.xiaomimimo.com
-# MIMO_API_KEY=your_mimo_key
+# B 站登录态（服务端下载/ASR 兜底需要）
+BILIBILI_SESSION_TOKEN=your_sessdata
+BILIBILI_BILI_JCT=your_bili_jct
+# BILIBILI_AC_TIME_VALUE=
 
-# Telegram Bot（可选）
-TELEGRAM_BOT_ENABLED=false
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_ALLOWED_USER_IDS=123456789
-TELEGRAM_OUTPUT_FOLDER=Telegram
-
-# 语音识别模式（可选，默认 local；可选 local / bailian / mimo）
+# ASR 模式：local | bailian | mimo（默认 local）
 ASR_MODE=local
 
-# 小米 Mimo ASR（ASR_MODE=mimo 时使用独立语音识别配置）
-MIMO_ASR_API_KEY=your_mimo_asr_key
-MIMO_ASR_BASE_URL=https://api.xiaomimimo.com/v1
-MIMO_ASR_MODEL=mimo-v2.5-asr
-MIMO_ASR_LANGUAGE=auto
-MIMO_ASR_CHUNK_SECONDS=300
-MIMO_ASR_CONCURRENCY=5
-MIMO_ASR_MAX_TOKENS=2048
+# 小米 Mimo ASR（ASR_MODE=mimo）
+# MIMO_ASR_API_KEY=
+# MIMO_ASR_BASE_URL=https://api.xiaomimimo.com/v1
+# MIMO_ASR_MODEL=mimo-v2.5-asr
+# MIMO_ASR_LANGUAGE=auto
 
-# 百炼 ASR（ASR_MODE=bailian 时需要）
-BAILIAN_API_KEY=your_bailian_key
-BAILIAN_ASR_MODEL=qwen3-asr-flash-filetrans
-BAILIAN_ASR_BASE_URL=https://dashscope.aliyuncs.com/api/v1
+# 阿里云百炼 ASR（ASR_MODE=bailian）
+# BAILIAN_API_KEY=
+# BAILIAN_ASR_MODEL=qwen3-asr-flash-filetrans
+# BAILIAN_ASR_BASE_URL=https://dashscope.aliyuncs.com/api/v1
 
-# Cloudflare R2（百炼 ASR 文件中转用）
-CLOUDFLARE_R2_ACCOUNT_ID=your_account_id
-CLOUDFLARE_R2_BUCKET=your_bucket
-CLOUDFLARE_R2_ACCESS_KEY_ID=your_access_key
-CLOUDFLARE_R2_SECRET_ACCESS_KEY=your_secret_key
-CLOUDFLARE_R2_PUBLIC_BASE_URL=https://your-domain.com
+# 百炼 ASR 的文件中转（Cloudflare R2）
+# CLOUDFLARE_R2_ACCOUNT_ID=
+# CLOUDFLARE_R2_BUCKET=
+# CLOUDFLARE_R2_ACCESS_KEY_ID=
+# CLOUDFLARE_R2_SECRET_ACCESS_KEY=
+# CLOUDFLARE_R2_PUBLIC_BASE_URL=
+
+# Telegram Bot（可选）
+# TELEGRAM_BOT_ENABLED=false
+# TELEGRAM_BOT_TOKEN=
+# TELEGRAM_ALLOWED_USER_IDS=
+# TELEGRAM_OUTPUT_FOLDER=Telegram
+
+# 鉴权（公网部署必须开启）
+# BILISUMMARY_AUTH=1
+# BILISUMMARY_BIND=127.0.0.1
 ```
 
-### 3. 运行
+配置只在启动时读取，修改后需要重启容器。
+
+### 2. 启动后端
 
 ```bash
-# Web 模式
-python server.py
-
-# 桌面模式
-python app.py
-```
-
-### Docker 运行
-
-默认端口为 `18520`，容器内运行数据保存在宿主机的 `./data` 目录。Docker 模式会把宿主机根目录的 `.env.local` 挂载到容器中作为唯一配置文件；在网页设置中保存配置会直接更新宿主机 `.env.local`，并对 AI、ASR、R2、Telegram 等运行时配置执行热更新。
-
-```bash
-# 使用 docker compose
 mkdir -p data
 docker compose up -d --build
-
-# 访问
-open http://127.0.0.1:18520
 ```
 
-默认只绑定 `127.0.0.1`。如需局域网访问，设置 `BILISUMMARY_BIND=0.0.0.0` 后再 `docker compose up -d`。
-
-也可以直接使用 Docker：
+默认监听 `127.0.0.1:18520`。首次启动会在 `data/.api_token` 生成访问令牌：
 
 ```bash
-docker build -t bilibili-summary .
-docker run -d \
-  --name bilibili-summary \
-  -e BILISUMMARY_BUNDLE_DIR=/app \
-  -e BILISUMMARY_DATA_DIR=/data \
-  -e BILISUMMARY_ENV_FILE=/app/.env.local \
-  -p 18520:18520 \
-  -v "$(pwd)/data:/data" \
-  -v "$(pwd)/.env.local:/app/.env.local" \
-  bilibili-summary
+cat data/.api_token
+open "http://127.0.0.1:18520/history?token=<token>"
 ```
+
+也可以直接运行：
+
+```bash
+pip install -r requirements.txt
+python server.py          # 或 uvicorn server:app --host 127.0.0.1 --port 18520
+```
+
+### 3. 安装扩展
+
+1. 按 `bili-ext/README.md` 把 `manifest.json` 的 `host_permissions` 换成你的服务器域名（本机调试保留 `http://127.0.0.1:18520/*`）。
+2. Chrome → `chrome://extensions` → 开发者模式 → 加载已解压的扩展程序 → 选择 `bili-ext/`。
+3. 扩展选项里填服务器地址与 `data/.api_token` 中的令牌。
+
+## API
+
+所有 `/api/v2/*` 请求带 `X-BS-Token`；`/api/v2/health` 与 `/api/status` 公开。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v2/health` | 健康检查、ASR/登录态能力 |
+| GET | `/api/v2/subtitles/{bvid}?p=` | 读取已落盘字幕（含 `segments`） |
+| POST | `/api/v2/subtitles/{bvid}/import` | 回传官方字幕 |
+| POST | `/api/v2/subtitles/{bvid}/asr` | 提交 ASR 任务 |
+| GET | `/api/v2/tasks/{id}` / `/stream` | 任务状态（轮询 / SSE） |
+| GET | `/api/v2/summaries/{bvid}?p=` | 读取总结 |
+| POST | `/api/v2/summaries/{bvid}` | 生成/重新生成总结 |
+| GET | `/api/v2/history?q=&limit=&cursor=` | 历史列表 |
+| GET | `/history`、`/history/{bvid}` | 服务器历史页 |
+| GET | `/api/status` | Docker HEALTHCHECK 探活 |
+
+完整请求/响应字段见 [`bili-ext/README.md`](bili-ext/README.md)。
 
 ## 项目结构
 
 ```text
-app.py                          # 桌面入口 (pywebview)
-server.py                       # FastAPI 应用主文件
-summarize.py                    # AI 摘要生成管线
+server.py                    # FastAPI 入口：/api/v2、/history、Telegram
+summarize.py                 # AI 总结与字幕生成管线
 routes/
-  asr.py                        # ASR 路由入口
-  whisper.py                    # Whisper/百炼/Mimo ASR 统一调度
-  bailian_asr.py                # 阿里云百炼 ASR 客户端
-  mimo_asr.py                   # 小米 Mimo ASR 客户端
-  bilibili_downloader.py        # Bilibili 视频并发下载器
-  r2_storage.py                 # Cloudflare R2 存储辅助
-  telegram_bot.py               # Telegram Bot 集成
-  deps.py                       # 核心依赖：任务管理、文件夹、日志
-  favorites.py                  # 收藏夹相关路由
-  settings.py                   # 设置管理路由
-static/
-  index.html                    # 前端入口
-  app.js                        # 前端逻辑
-  style.css                     # 样式表
-  vendor/                       # 第三方库 (marked.js, DOMPurify)
-tests/                          # 单元测试
-docs/                           # 文档
+  deps.py                    # 凭证、任务日志、文件夹、进度总线
+  bilibili_downloader.py     # 视频/音频下载
+  whisper.py                 # ASR 统一调度（local/bailian/mimo）
+  bailian_asr.py             # 阿里云百炼 ASR
+  mimo_asr.py                # 小米 Mimo ASR
+  r2_storage.py              # Cloudflare R2 文件中转
+  telegram_bot.py            # Telegram Bot
+  v2/                        # 插件 API、存储、任务、历史页
+bili-ext/                    # Chrome MV3 扩展
+tests/                       # 单元测试
 ```
 
-## Telegram 使用
+## 测试
 
-发送包含 BV 号的 Bilibili 链接到 Bot：
-
-```text
-https://www.bilibili.com/video/BV1xx411c7mD
-https://www.bilibili.com/video/BV1yy411c7mD
+```bash
+python -m pytest -q
+cd bili-ext && node --test tests/core.test.mjs
 ```
 
-支持 `/start` 和 `/help` 命令查看使用说明。发送 `/help` 可获取当前 Telegram 用户 ID，用于配置访问白名单。
+## 来源与致谢
 
-## 文档
+本项目最初基于 [jackwener/bilibili-summary](https://github.com/jackwener/bilibili-summary) 进行大规模重构与扩展。上游仓库未声明开源许可证，其原始代码版权归原作者所有；本仓库保留来源说明，但不代表上游代码随本项目重新授权。
 
-- 设计系统: `docs/design-system.md`
-- 项目状态: `docs/project-status.md`
+- 上游作者：jackwener
+- 本仓库新增与修改部分：1zero224
+- WBI 签名实现参考 [B-LIPSTICK/bili-digest](https://github.com/B-LIPSTICK/bili-digest)（MIT，声明保留在 `bili-ext/src/wbi.js`）
+- 字幕合并/导出设计参考 [IndieKKY/bilibili-subtitle](https://github.com/IndieKKY/bilibili-subtitle)（MIT）
 
-## 许可证
-
-MIT
+若你是上游作者并希望调整署名或许可方式，请通过 Issue 联系。
