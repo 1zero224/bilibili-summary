@@ -125,3 +125,18 @@ async def index():
 @app.get("/api/status")
 async def get_status():
     return {"logged_in": deps.credential is not None, "ai_configured": deps.ai_client is not None}
+
+
+# ---------------------------------------------------------------------------
+# 独立运行
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import uvicorn
+
+    host = os.getenv("HOST", "127.0.0.1")
+    try:
+        port = int(os.getenv("PORT", "18520"))
+    except ValueError:
+        port = 18520
+
+    uvicorn.run(app, host=host, port=port)
