@@ -32,6 +32,21 @@ BS.trackSource = function trackSource(track) {
   return "other";
 };
 
+/**
+ * 服务端/任务返回的 segments → 标准形状。
+ * 兼容 `{start,end,text}` 与 `{from,to,content}` 两种写法，过滤空文本与非法时间。
+ */
+BS.normalizeSegments = function normalizeSegments(raw) {
+  return (raw || [])
+    .map((s) => ({
+      start: Number(s && (s.start != null ? s.start : s.from)) || 0,
+      end: Number(s && (s.end != null ? s.end : s.to)) || 0,
+      text: String((s && (s.text != null ? s.text : s.content)) || "").trim(),
+      music: false,
+    }))
+    .filter((s) => s.text && s.end > s.start);
+};
+
 /** 原始 body[] → 归一化 segments（过滤空文本与非法时间）。 */
 BS.parseSubtitleJson = function parseSubtitleJson(json) {
   const body = json && Array.isArray(json.body) ? json.body : [];

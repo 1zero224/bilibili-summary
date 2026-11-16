@@ -39,6 +39,20 @@ test("parseSubtitleJson 过滤非法项并归一化字段", () => {
   assert.equal(segs[0].start, 0.12);
 });
 
+test("normalizeSegments 兼容 start/end 与 from/to 两种写法", () => {
+  const segs = BS.normalizeSegments([
+    { start: 1, end: 2, text: " a " },
+    { from: 3, to: 4, content: "b" },
+    { start: 5, end: 5, text: "零长度" },
+    { start: 6, end: 7, text: "   " },
+    null,
+  ]);
+  assert.deepEqual(segs, [
+    { start: 1, end: 2, text: "a", music: false },
+    { start: 3, end: 4, text: "b", music: false },
+  ]);
+});
+
 test("mergeSegments 在句末标点/间隔/超长处断行", () => {
   const rows = BS.mergeSegments(BS.parseSubtitleJson(SAMPLE), { gap: 0.8, maxLen: 42 });
   assert.equal(rows.length, 3);

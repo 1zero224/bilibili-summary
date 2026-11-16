@@ -1,11 +1,14 @@
 /**
- * 面板样式（注入 Shadow Root，与 B 站页面 CSS 完全隔离）。
+ * 面板样式（注入扩展自己的 iframe 文档，与 B 站页面 CSS 完全隔离）。
  * 统一走 token：浅/深色各一套，组件只用变量，不再各处写 rgba。
+ * 注意：token 必须挂在 .panel 上（不能写 :host——普通文档里 :host 匹配不到元素，
+ * 会导致浅色主题下所有 var(--bg/--text) 失效，面板变透明、文字退回默认黑色）。
  */
 globalThis.BS = globalThis.BS || {};
 
 globalThis.BS.CSS = `
-:host {
+.panel {
+  color-scheme: light;
   --bg: #ffffff;
   --bg-soft: #f4f6f8;
   --bg-hover: #eef1f5;
@@ -27,6 +30,7 @@ globalThis.BS.CSS = `
   --thumb-hover: rgba(110, 120, 134, .62);
 }
 .panel[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #17191d;
   --bg-soft: #21252b;
   --bg-hover: #2a2f36;
@@ -46,7 +50,7 @@ globalThis.BS.CSS = `
   --thumb-hover: rgba(255, 255, 255, .38);
 }
 
-:host, * { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
 /* ---------- 容器 ---------- */
 .panel {

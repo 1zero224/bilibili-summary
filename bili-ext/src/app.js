@@ -23,7 +23,7 @@
     error: "",
     sync: "",
     syncWarn: false,
-    prefs: { tab: "sub", merged: true, collapsed: false, theme: "auto" },
+    prefs: { tab: "sub", merged: true, collapsed: true, theme: "auto" },
     active: -1,
     time: 0,
     task: null,
@@ -58,6 +58,20 @@
     }, 2000);
   }
 
+  // ---------- 主题 ----------
+  // 主题只由一条路径决定：prefs.theme + 系统偏好；prefs 更新或系统主题切换时都要重算，
+  // 否则浅色/深色会卡在首次构建时的状态。
+  function applyTheme() {
+    if (!el.panel) return;
+    el.panel.dataset.theme =
+      state.prefs.theme === "dark" ||
+      (state.prefs.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)
+        ? "dark"
+        : "light";
+  }
+
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+
   // ---------- 构建 ----------
   function build() {
     const style = document.createElement("style");
@@ -65,11 +79,7 @@
     document.head.appendChild(style);
 
     el.panel = h("div", "panel dock");
-    el.panel.dataset.theme =
-      state.prefs.theme === "dark" ||
-      (state.prefs.theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches)
-        ? "dark"
-        : "light";
+    applyTheme();
 
     // 第一行：分段选项卡 + 折叠
     el.topbar = h("div", "topbar");
@@ -146,11 +156,12 @@
     el.toolbar.append(copyAll, mergeBtn, group, asrBtn, reload);
 
     el.status = h("div", "status", "");
+    el.statusText = h("span", "", "");
     el.syncTag = h("span", "", "");
     el.syncTag.style.cursor = "pointer";
     el.syncTag.addEventListener("click", () => post({ __bs: "options" }));
     el.syncTag.style.display = "none";
-    el.status.appendChild(el.syncTag);
+    el.status.append(el.statusText, el.syncTag);
     el.list = h("div", "list");
     el.list.addEventListener("wheel", () => {}, { passive: true });
 
@@ -222,7 +233,7 @@
       const box = h("div", "empty");
       box.append(
         h("div", "", "这个视频没有可用字幕。"),
-        h("div", "", "可以点上方「一键转写」，由服务器 ASR 生成。"),
+        h("div", "", "可以点上方「获取字幕」，由服务器 ASR 生成。"),
       );
       el.list.appendChild(box);
       return;
@@ -355,6 +366,7 @@
       state.sync = d.sync || "";
       state.syncWarn = !!d.syncWarn;
       state.prefs = { ...state.prefs, ...(d.prefs || {}) };
+      applyTheme();
       const nextKey = state.video ? `${state.video.bvid}_${state.video.p}` : "";
       if (prevKey !== nextKey) state.summary = { data: null, loading: false, pending: false, error: "", status: "" };
       buildRows();
@@ -388,7 +400,7 @@
         }
         renderSummary();
       } else {
-        el.status.textContent = `转写中… ${t.step || t.status || ""}`;
+        if (el.statusText) el.statusText.textContent = `转写中… ${t.step || t.status || ""}`;
       }
       return;
     }
@@ -408,17 +420,13 @@
   });
 
   function updateStatus() {
-    if (!el.status || !el.syncTag) return;
+    if (!el.status || !el.syncTag || !el.statusText) return;
     const text = state.error
       ? ""
       : [state.label, state.segments.length ? `${state.segments.length} 条` : "", state.via ? `via ${state.via}` : ""]
           .filter(Boolean)
           .join(" · ") || state.status || "";
-    // 先清掉纯文本节点，再写新的
-    for (const node of Array.from(el.status.childNodes)) {
-      if (node.nodeType === Node.TEXT_NODE) node.remove();
-    }
-    el.status.insertBefore(document.createTextNode(text), el.syncTag);
+    el.statusText.textContent = text;
     const has = state.segments.length > 0;
     el.asrBtn.style.display = "";
     el.asrBtn.className = has ? "" : "primary";

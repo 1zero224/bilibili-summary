@@ -308,6 +308,28 @@ BS.fetchTranscript = async function fetchTranscript(video, preferredLan) {
   return { ...record, track, tracks };
 };
 
+/**
+ * 从自建服务器读取已落盘的字幕（ASR 结果 / 插件回传的官方字幕）。
+ * 未配置服务器、没有记录或网络失败时返回 null —— 只作兜底，不打断主链路。
+ * @returns {Promise<{segments:Array, serverSource:string, lang:string, updatedAt:number}|null>}
+ */
+BS.fetchServerTranscript = async function fetchServerTranscript(video) {
+  if (!video || !video.bvid) return null;
+  try {
+    const record = await BS.api("GET", `/api/v2/subtitles/${video.bvid}?p=${video.p || 1}`);
+    const segments = BS.normalizeSegments(record && record.segments);
+    if (!segments.length) return null;
+    return {
+      segments,
+      serverSource: String((record && record.source) || ""),
+      lang: String((record && record.lang) || ""),
+      updatedAt: Number((record && record.updated_at) || 0),
+    };
+  } catch (_) {
+    return null;
+  }
+};
+
 /** 取 DASH 音频直链（ASR 用）；失败返回空串。 */
 BS.getAudioUrl = async function getAudioUrl(video) {
   const { bvid, cid, aid } = video;
@@ -349,6 +371,11 @@ BS.getAudioUrl = async function getAudioUrl(video) {
 BS.api = async function api(method, path, body) {
   const res = await chrome.runtime.sendMessage({ type: "bs:api", method, path, body });
   if (!res) throw new Error("后台无响应");
-  if (!res.ok) throw new Error(res.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    // 把 HTTP 状态码挂在 Error 上，调用方按语义区分「空状态」与「真失败」
+    const err = new Error(res.error || `HTTP ${res.status}`);
+    err.status = Number(res.status) || 0;
+    throw err;
+  }
   return res.data;
 };

@@ -1,16 +1,14 @@
 /** 设置页：读写 chrome.storage.local 的 bs:prefs，并提供连接自检。 */
 
 const DEFAULTS = {
-  prefsVersion: 2,
   mode: "embed",
-  collapsed: true,
   serverUrl: "",
   token: "",
   theme: "auto",
   width: 380,
   merged: true,
   follow: true,
-  collapsed: false,
+  collapsed: true,
   top: 88,
   right: 16,
 };

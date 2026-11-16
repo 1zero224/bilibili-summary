@@ -14,7 +14,7 @@ const DEFAULT_PREFS = {
   width: 380,
   merged: true,
   follow: true,
-  collapsed: false,
+  collapsed: true,
   top: 88,
   right: 16,
 };

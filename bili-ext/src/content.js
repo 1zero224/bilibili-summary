@@ -22,7 +22,6 @@
   const MAX_HEIGHT = 680;
 
   const DEFAULT_PREFS = {
-    prefsVersion: 2,
     mode: "embed",
     serverUrl: "",
     token: "",
@@ -30,7 +29,7 @@
     width: 380,
     merged: true,
     follow: true,
-    collapsed: false,
+    collapsed: true,
     tab: "sub",
   };
 
@@ -79,7 +78,9 @@
   async function loadPrefs() {
     try {
       const got = await chrome.storage.local.get("bs:prefs");
-      state.prefs = { ...DEFAULT_PREFS, ...((got && got["bs:prefs"]) || {}) };
+      const stored = (got && got["bs:prefs"]) || {};
+      // 默认折叠：展开/折叠只在本页面内生效；即使上次展开过，刷新后也回到折叠态
+      state.prefs = { ...DEFAULT_PREFS, ...stored, collapsed: true };
     } catch (_) {
       /* ignore */
     }
@@ -231,7 +232,16 @@
     if (src === "human") return "官方 CC";
     if (src === "ai") return "官方 AI 字幕";
     if (src === "asr") return "ASR 转写";
+    if (src === "server") return "服务器字幕";
     return "";
+  }
+
+  /** 服务器字幕记录的 source（native-cc/native-ai/asr/…）→ 面板的来源标签。 */
+  function langSourceOfServer(source) {
+    if (source === "asr") return "asr";
+    if (source === "native-cc") return "human";
+    if (source === "native-ai") return "ai";
+    return "server";
   }
 
   function setSync(text, warn) {
@@ -262,6 +272,8 @@
   // ---------- 服务器 ----------
   async function importToServer() {
     if (!state.segments.length || !state.video) return;
+    // ASR / 服务器回读的结果本来就来自服务端，不再回传覆盖
+    if (state.langSource === "asr" || state.langSource === "server") return;
     if (!state.prefs.serverUrl) return setSync("未配置服务器", true);
     if (!state.prefs.token) return setSync("未填令牌 · 点此设置", true);
 
@@ -368,17 +380,6 @@
     }
   }
 
-  function normalizeSegments(raw) {
-    return (raw || [])
-      .map((s) => ({
-        start: Number(s.start != null ? s.start : s.from) || 0,
-        end: Number(s.end != null ? s.end : s.to) || 0,
-        text: String(s.text != null ? s.text : s.content || "").trim(),
-        music: false,
-      }))
-      .filter((s) => s.text && s.end > s.start);
-  }
-
   async function runAsr() {
     if (state.asrRunning) return;
     if (!state.video) return;
@@ -400,7 +401,7 @@
       const payload = await watchTask(taskId, {
         onStatus: (p) => pushTask({ kind: "asr", status: "running", step: p.step || p.status || "" }),
       });
-      const segs = normalizeSegments(payload.segments);
+      const segs = BS.normalizeSegments(payload.segments);
       if (!segs.length) throw new Error("服务器返回的字幕为空");
       state.segments = segs;
       state.track = { lan: "asr", lan_doc: "ASR" };
@@ -422,8 +423,13 @@
       const data = await BS.api("GET", `/api/v2/summaries/${state.video.bvid}?p=${state.video.p}`);
       pushSummary(data, "");
     } catch (e) {
-      const msg = String(e.message || e);
-      pushSummary(null, /404/.test(msg) ? "" : `读取总结失败：${msg}`);
+      // 404 = 该视频还没有总结，属于正常空状态，不按错误展示
+      const msg = String((e && e.message) || e);
+      if (Number(e && e.status) === 404 || /404/.test(msg)) {
+        pushSummary(null, "");
+        return;
+      }
+      pushSummary(null, `读取总结失败：${msg}`);
     }
   }
 
@@ -468,14 +474,42 @@
         state.segments = [];
         state.importedKey = "";
       }
-      const r = await BS.fetchTranscript(video, state.track && state.track.lan);
-      state.track = r.track || null;
-      state.langSource = r.langSource || (r.source === "none" ? "none" : "other");
-      state.via = r.via || "";
-      state.segments = r.segments || [];
+
+      // 1) 官方字幕：B 站接口可能整体失败（风控/CORS），先记下错误，继续走服务器兜底
+      let nativeError = null;
+      try {
+        const r = await BS.fetchTranscript(video, state.track && state.track.lan);
+        state.track = r.track || null;
+        state.langSource = r.langSource || (r.source === "none" ? "none" : "other");
+        state.via = r.via || "";
+        state.segments = r.segments || [];
+      } catch (e) {
+        nativeError = e;
+        if (!state.segments.length) {
+          state.track = null;
+          state.langSource = "none";
+          state.via = "";
+        }
+      }
+
+      // 2) 没有官方字幕 → 回读服务器已落盘的记录（含此前 ASR 结果），刷新/重载后仍可恢复
+      let fromServer = false;
+      if (!state.segments.length) {
+        const saved = await BS.fetchServerTranscript(video);
+        if (saved) {
+          state.segments = saved.segments;
+          state.langSource = langSourceOfServer(saved.serverSource);
+          state.track = { lan: saved.lang || "server", lan_doc: "" };
+          state.via = "server";
+          fromServer = true;
+        }
+      }
+
+      if (nativeError && !state.segments.length) throw nativeError;
+
       state.status = state.segments.length ? `${state.segments.length} 条` : "未找到可用字幕";
       pushState();
-      importToServer();
+      if (!fromServer) importToServer();
     } catch (e) {
       state.error = `读取失败：${e.message || e}`;
       state.status = "";
